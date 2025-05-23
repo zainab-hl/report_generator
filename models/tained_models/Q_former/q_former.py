@@ -6,19 +6,14 @@ import math
 import warnings
 from typing import Optional, Tuple, Dict, Any
 
-# --- Mock/Helper Imports for internal BERT-like components ---
-# These are minimal mocks to allow the BERT-like components to run independently
-# without requiring the full 'transformers' library for their base classes/utilities.
-
-class MockLogger:
-    """A minimal logger mock to prevent errors from missing 'logging' module."""
-    def warn(self, message):
-        print(f"WARNING: {message}")
-logger = MockLogger()
+# class MockLogger:
+#     """A minimal logger mock to prevent errors from missing 'logging' module."""
+#     def warn(self, message):
+#         print(f"WARNING: {message}")
+# logger = MockLogger()
 
 class ModelOutput:
-    """A minimal mock for Hugging Face's ModelOutput base class."""
-    def __init__(self, **kwargs):
+=    def __init__(self, **kwargs):
         self.kwargs = kwargs
     def __getitem__(self, key):
         return self.kwargs[key]
@@ -30,10 +25,6 @@ class ModelOutput:
         return str(self.kwargs)
 
 class BaseModelOutputWithPastAndCrossAttentions(ModelOutput):
-    """
-    A mock for BaseModelOutputWithPastAndCrossAttentions, used by BertEncoder.
-    It simulates the return structure of a BERT encoder with attention outputs and past key values.
-    """
     def __init__(self, last_hidden_state: torch.Tensor, past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None, hidden_states: Optional[Tuple[torch.Tensor]] = None, attentions: Optional[Tuple[torch.Tensor]] = None, cross_attentions: Optional[Tuple[torch.Tensor]] = None):
         super().__init__(
             last_hidden_state=last_hidden_state,
@@ -104,14 +95,11 @@ class BertConfig:
         self.encoder_width = encoder_width
         self.num_query_tokens = num_query_tokens
         self.gradient_checkpointing = gradient_checkpointing
-        # Dummy values for compatibility with general BERT component expectations,
-        # but not directly used by the Q-Former's core logic.
         self.vocab_size = 30522
         self.max_position_embeddings = 512
         self.pad_token_id = 0
         self.position_embedding_type = "absolute"
 
-# --- BERT-like Components (Building Blocks for Q-Former) ---
 
 class BertSelfAttention(nn.Module):
     """
@@ -134,24 +122,21 @@ class BertSelfAttention(nn.Module):
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         if is_cross_attention:
-            # For cross-attention, key and value layers operate on the encoder_width (image features)
             self.key = nn.Linear(config.encoder_width, self.all_head_size)
             self.value = nn.Linear(config.encoder_width, self.all_head_size)
         else:
-            # For self-attention, key and value layers operate on the hidden_size (query embeddings)
             self.key = nn.Linear(config.hidden_size, self.all_head_size)
             self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
         
-        # Relative positional embeddings (not typically used in Q-Former but kept for compatibility)
         if (self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query"):
             self.max_position_embeddings = config.max_position_embeddings
             self.distance_embedding = nn.Embedding(
                 2 * config.max_position_embeddings - 1, self.attention_head_size
             )
-        self.save_attention = False # Flag for saving attention maps (e.g., for visualization)
+        self.save_attention = False 
 
     def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -165,13 +150,13 @@ class BertSelfAttention(nn.Module):
 
     def forward(
         self,
-        hidden_states: torch.Tensor, # Input sequence (queries for Q-Former)
-        attention_mask: Optional[torch.Tensor] = None, # Mask for self-attention
-        head_mask: Optional[torch.Tensor] = None, # Mask for attention heads
-        encoder_hidden_states: Optional[torch.Tensor] = None, # Encoder output (image features for cross-attention)
-        encoder_attention_mask: Optional[torch.Tensor] = None, # Mask for encoder output
-        past_key_value: Optional[Tuple[torch.Tensor]] = None, # Cached past key/value states
-        output_attentions: bool = False, # Whether to output attention probabilities
+        hidden_states: torch.Tensor, 
+        attention_mask: Optional[torch.Tensor] = None, 
+        head_mask: Optional[torch.Tensor] = None, 
+        encoder_hidden_states: Optional[torch.Tensor] = None, 
+        encoder_attention_mask: Optional[torch.Tensor] = None, 
+        past_key_value: Optional[Tuple[torch.Tensor]] = None, 
+        output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, ...]:
         """
         Forward pass for self-attention or cross-attention.
@@ -179,18 +164,15 @@ class BertSelfAttention(nn.Module):
         is_cross_attention = encoder_hidden_states is not None
 
         if is_cross_attention:
-            # If cross-attention, keys and values come from encoder_hidden_states
             key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
             value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
             attention_mask = encoder_attention_mask # Use encoder's mask for cross-attention
         elif past_key_value is not None:
-            # If using past_key_value, concatenate with current keys/values (for generation)
             key_layer = self.transpose_for_scores(self.key(hidden_states))
             value_layer = self.transpose_for_scores(self.value(hidden_states))
             key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
             value_layer = torch.cat([past_key_value[1], value_layer], dim=2)
         else:
-            # For standard self-attention, keys and values come from hidden_states
             key_layer = self.transpose_for_scores(self.key(hidden_states))
             value_layer = self.transpose_for_scores(self.value(hidden_states))
 
@@ -199,10 +181,8 @@ class BertSelfAttention(nn.Module):
 
         past_key_value = (key_layer, value_layer) # Cache current key/value for next steps
 
-        # Compute raw attention scores (query dot key)
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
-        # Apply relative positional embeddings if configured (not typical for Q-Former's queries)
         if (self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query"):
             seq_length = hidden_states.size()[1]
             position_ids_l = torch.arange(seq_length, dtype=torch.long, device=hidden_states.device).view(-1, 1)
@@ -221,29 +201,23 @@ class BertSelfAttention(nn.Module):
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
-            # Apply the attention mask (e.g., for padding or causal masking)
             attention_scores = attention_scores + attention_mask
 
-        # Normalize attention scores to probabilities
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-        # Apply dropout to attention probabilities
         attention_probs_dropped = self.dropout(attention_probs)
 
-        # Apply head mask if provided
         if head_mask is not None:
             attention_probs_dropped = attention_probs_dropped * head_mask
 
-        # Compute context layer (attention probabilities dot value)
         context_layer = torch.matmul(attention_probs_dropped, value_layer)
 
-        # Reshape context layer back to original hidden state dimensions
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
 
         outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
-        outputs = outputs + (past_key_value,) # Always return past_key_value for compatibility
+        outputs = outputs + (past_key_value,) 
 
         return outputs
 
@@ -370,77 +344,71 @@ class BertLayer(nn.Module):
         super().__init__()
         self.config = config
         self.chunk_size_feed_forward = getattr(config, "chunk_size_feed_forward", 0)
-        self.seq_len_dim = 1 # Dimension along which to chunk for feed-forward
-        self.attention = BertAttention(config) # Self-attention for queries
+        self.seq_len_dim = 1 
+        self.attention = BertAttention(config) 
         self.layer_num = layer_num
 
-        # Initialize cross-attention if enabled and at the specified frequency
         if self.config.add_cross_attention and layer_num % self.config.cross_attention_freq == 0:
             self.crossattention = BertAttention(
-                config, is_cross_attention=True # Explicitly set to True for cross-attention
+                config, is_cross_attention=True 
             )
             self.has_cross_attention = True
         else:
             self.has_cross_attention = False
 
-        self.intermediate = BertIntermediate(config) # Standard FFN for general BERT
+        self.intermediate = BertIntermediate(config) 
         self.output = BertOutput(config)
 
-        # Separate FFNs for queries that have interacted with image features
         self.intermediate_query = BertIntermediate(config)
         self.output_query = BertOutput(config)
 
     def forward(
         self,
-        hidden_states: torch.Tensor, # Query embeddings (B, N_q, D)
-        attention_mask: Optional[torch.Tensor] = None, # Self-attention mask for queries
+        hidden_states: torch.Tensor, 
+        attention_mask: Optional[torch.Tensor] = None, 
         head_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.Tensor] = None, # Image features (B, N_v, D_v)
-        encoder_attention_mask: Optional[torch.Tensor] = None, # Cross-attention mask for image features
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None, 
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
-        query_length: int = 0, # The length of the query sequence (N_q)
+        query_length: int = 0, 
     ) -> Tuple[torch.Tensor, ...]:
         """
         Forward pass for a single BERT layer within the Q-Former.
         """
-        # 1. Self-attention on the query embeddings
         self_attn_past_key_value = (
             past_key_value[:2] if past_key_value is not None else None
         )
         self_attention_outputs = self.attention(
-            hidden_states, # Input are the queries
-            attention_mask, # Mask for self-attention of queries
+            hidden_states, 
+            attention_mask, 
             head_mask,
             output_attentions=output_attentions,
             past_key_value=self_attn_past_key_value,
         )
-        attention_output = self_attention_outputs[0] # Output after self-attention (B, N_q, D)
-        outputs = self_attention_outputs[1:-1] # Contains attentions if output_attentions is True
+        attention_output = self_attention_outputs[0] 
+        outputs = self_attention_outputs[1:-1] 
 
-        present_key_value = self_attention_outputs[-1] # Cached key/value for next step (not critical for Q-Former)
+        present_key_value = self_attention_outputs[-1] 
 
-        # 2. Cross-attention to image features (if enabled for this layer)
         if self.has_cross_attention:
             assert (
                 encoder_hidden_states is not None
             ), "encoder_hidden_states must be given for cross-attention layers when has_cross_attention is True"
 
             cross_attention_outputs = self.crossattention(
-                attention_output, # Queries (output of self-attention)
-                attention_mask, # This mask is for the queries (not for encoder_hidden_states)
+                attention_output, 
+                attention_mask,
                 head_mask,
-                encoder_hidden_states, # Image features (keys/values for cross-attention)
-                encoder_attention_mask, # Mask for image features
+                encoder_hidden_states, 
+                encoder_attention_mask, 
                 output_attentions=output_attentions,
             )
-            cross_attention_output = cross_attention_outputs[0] # Output after cross-attention
-            outputs = (outputs + cross_attention_outputs[1:-1]) # Add cross-attentions if requested
+            cross_attention_output = cross_attention_outputs[0] 
+            outputs = (outputs + cross_attention_outputs[1:-1]) 
 
-            # 3. Apply query-specific Feed-Forward Network (FFN)
-            # In Q-Former, `hidden_states` are exclusively queries, so we always use the query-specific FFN.
             layer_output = apply_chunking_to_forward(
-                self.feed_forward_chunk_query, # Use FFN specifically for queries
+                self.feed_forward_chunk_query,
                 self.chunk_size_feed_forward,
                 self.seq_len_dim,
                 cross_attention_output,
@@ -501,7 +469,6 @@ class BertEncoder(nn.Module):
             extended_attention_mask = attention_mask[:, None, :, :]
         elif attention_mask.dim() == 2:
             extended_attention_mask = attention_mask[:, None, None, :]
-            # Convert to float and apply large negative value for masked positions
             extended_attention_mask = extended_attention_mask.to(dtype=self.layer[0].attention.self.query.weight.dtype)
             extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0 # A common masking value
         else:
@@ -535,7 +502,6 @@ class BertEncoder(nn.Module):
 
         next_decoder_cache = () if use_cache else None
 
-        # Pre-process attention masks once before iterating through layers
         extended_attention_mask = None
         if attention_mask is not None:
             extended_attention_mask = self.get_extended_attention_mask(
@@ -556,7 +522,6 @@ class BertEncoder(nn.Module):
             layer_head_mask = head_mask[i] if head_mask is not None else None
             past_key_value = past_key_values[i] if past_key_values is not None else None
 
-            # Apply gradient checkpointing if enabled
             if getattr(self.config, "gradient_checkpointing", False) and self.training:
                 if use_cache:
                     logger.warn(
@@ -615,7 +580,6 @@ class BertEncoder(nn.Module):
                 ]
                 if v is not None
             )
-        # Return as a BaseModelOutputWithPastAndCrossAttentions object for structured output
         return BaseModelOutputWithPastAndCrossAttentions(
             last_hidden_state=hidden_states,
             past_key_values=next_decoder_cache,
@@ -633,23 +597,17 @@ class Qformer(nn.Module):
     It distills information from high-dimensional image features into a fixed set of
     learnable query embeddings. This is achieved using self-attention among the queries
     and cross-attention between the queries and the image features.
-    The output query embeddings are then fed to a language model (e.g., BioGPT).
+    The output query embeddings are then fed to a language model 
     """
     def __init__(self, config: BertConfig):
         super().__init__()
         self.config = config
 
-        # Learnable query tokens: These are the core input to the Q-Former's BERT encoder.
-        # They are initialized randomly and will be updated during training to learn
-        # to extract relevant visual information from the image features.
         self.query_tokens = nn.Parameter(torch.zeros(1, config.num_query_tokens, config.hidden_size))
-        # Initialize query tokens with a normal distribution
         self.query_tokens.data.normal_(mean=0.0, std=config.initializer_range)
 
-        # The BERT-like encoder that processes the query tokens and cross-attends to image features.
         self.bert_encoder = BertEncoder(config)
 
-        # Initialize weights for the Q-Former module's layers.
         self._init_weights()
 
     def _init_weights(self):
@@ -668,8 +626,8 @@ class Qformer(nn.Module):
 
     def forward(
         self,
-        image_features: torch.Tensor, # Output from BiomedCLIPEncoder (batch_size, feature_dim) or (batch_size, num_patches, feature_dim)
-        image_attention_mask: Optional[torch.Tensor] = None, # Mask for image features if needed
+        image_features: torch.Tensor, 
+        image_attention_mask: Optional[torch.Tensor] = None, 
     ) -> torch.Tensor:
         """
         Forward pass of the Q-Former.
@@ -686,49 +644,31 @@ class Qformer(nn.Module):
         batch_size = image_features.shape[0]
         device = image_features.device
 
-        # Expand the learnable query tokens to match the batch size.
-        # This creates a batch of identical query token sets.
         query_tokens = self.query_tokens.expand(batch_size, -1, -1) # (batch_size, num_query_tokens, hidden_size)
 
-        # The `hidden_states` argument to BertEncoder will be the query tokens.
-        # The `query_length` parameter in BertEncoder/BertLayer is used to tell the layers
-        # that the input sequence consists entirely of "query" tokens, which might
-        # receive special FFN treatment (like `feed_forward_chunk_query`).
-        query_length = query_tokens.shape[1] # This is simply config.num_query_tokens
+        query_length = query_tokens.shape[1] 
 
-        # Create a "ones" attention mask for the query tokens.
-        # This mask indicates that all query tokens can fully attend to each other
-        # in the self-attention mechanism within the Q-Former.
         query_attention_mask = torch.ones(query_tokens.shape[:-1], dtype=torch.long, device=device)
 
-        # Ensure image_features is formatted as a sequence of visual tokens for cross-attention.
-        # If BiomedCLIP outputs a single global feature vector (batch_size, feature_dim),
-        # we unsqueeze it to make it a sequence of one token (batch_size, 1, feature_dim).
         if image_features.dim() == 2:
-            encoder_hidden_states = image_features.unsqueeze(1) # (batch_size, 1, feature_dim)
-        else: # Assumed (batch_size, num_visual_tokens, feature_dim)
+            encoder_hidden_states = image_features.unsqueeze(1) 
+        else: 
             encoder_hidden_states = image_features
 
-        # Create an attention mask for the image features if not provided.
-        # If no mask is given, assume all visual tokens are relevant and should be attended to.
         if image_attention_mask is None:
             image_attention_mask = torch.ones(
                 encoder_hidden_states.shape[:-1], dtype=torch.long, device=device
-            ) # (batch_size, num_visual_tokens)
+            )
 
-        # Pass the query tokens and image features through the BERT encoder.
-        # The query tokens are the `hidden_states` that undergo self-attention.
-        # The image features are the `encoder_hidden_states` that the queries cross-attend to.
         encoder_outputs = self.bert_encoder(
             hidden_states=query_tokens,
-            attention_mask=query_attention_mask, # Self-attention mask for queries
-            encoder_hidden_states=encoder_hidden_states, # Image features from BiomedCLIP
-            encoder_attention_mask=image_attention_mask, # Cross-attention mask for image features
+            attention_mask=query_attention_mask, 
+            encoder_hidden_states=encoder_hidden_states, 
+            encoder_attention_mask=image_attention_mask, 
             return_dict=True,
-            query_length=query_length # Pass query_length to guide FFN selection in BertLayer
+            query_length=query_length 
         )
 
-        # The `last_hidden_state` from the encoder's output will be the refined query embeddings
-        # after they have processed the image information.
+
         output_query_embeddings = encoder_outputs.last_hidden_state
-        return output_query_embeddings # Final shape: (batch_size, num_query_tokens, hidden_size)
+        return output_query_embeddings
