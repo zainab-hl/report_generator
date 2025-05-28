@@ -36,13 +36,13 @@ class BaseModelOutputWithPastAndCrossAttentions(ModelOutput):
             cross_attentions=cross_attentions,
         )
 
-ACT2FN = {
-    """A dictionary mapping activation function names to PyTorch functions."""
-    "gelu": F.gelu,
-    "relu": F.relu,
-    "tanh": torch.tanh,
-    "sigmoid": torch.sigmoid,
-}
+# ACT2FN = {
+#     """A dictionary mapping activation function names to PyTorch functions."""
+#     "gelu": F.gelu,
+#     "relu": F.relu,
+#     "tanh": torch.tanh,
+#     "sigmoid": torch.sigmoid,
+# }
 
 def apply_chunking_to_forward(
     forward_fn, chunk_size, seq_len_dim, *input_tensors
@@ -672,5 +672,5 @@ class Qformer(nn.Module):
         )
 
 
-        output_query_embeddings = encoder_outputs.last_hidden_state
+        output_query_embeddings = encoder_outputs['last_hidden_state']
         return output_query_embeddings

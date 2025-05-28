@@ -7,7 +7,8 @@ from ..Q_former.q_former import Qformer
 
 
 class XrayReportGenerator(nn.Module):
-    def __init__(self, biomedclip_model_name, biomedclip_weights_path, qformer_config):
+    def __init__(self, biomedclip_model_name, biomedclip_weights_path, qformer_config,
+                 biogpt_weights_path: Optional[str] = None): 
         super().__init__()
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=biomedclip_model_name,
@@ -20,7 +21,23 @@ class XrayReportGenerator(nn.Module):
         self.qformer = Qformer(qformer_config)
 
         self.tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
-        self.biogpt_decoder = BioGptForCausalLM.from_pretrained("microsoft/biogpt")
+        
+        # 1. Initialize the base BioGPT model (architecture)
+        self.biogpt_decoder = BioGptForCausalLM.from_pretrained("microsoft/biogpt") 
+
+        # 2. Load your fine-tuned state dictionary if a path is provided
+        if biogpt_weights_path:
+            print(f"Loading fine-tuned BioGPT weights from: {biogpt_weights_path}")
+            # Load the state_dict from the .pth file
+            # map_location='cpu' is good practice to load to CPU first, then transfer to device
+            state_dict = torch.load(biogpt_weights_path, map_location='cpu') 
+            
+            # Load the state_dict into the model
+            # strict=False can be used if you anticipate minor mismatches (e.g., if you added layers)
+            self.biogpt_decoder.load_state_dict(state_dict) 
+            print("Fine-tuned BioGPT weights loaded successfully.")
+        else:
+            print("No fine-tuned BioGPT weights file provided, using default pre-trained BioGPT.")
 
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
 
@@ -34,7 +51,7 @@ class XrayReportGenerator(nn.Module):
         self.eos_token_id = self.tokenizer.eos_token_id
 
         if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id 
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
             import warnings
             warnings.warn("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
 
@@ -63,18 +80,39 @@ class XrayReportGenerator(nn.Module):
         input_attention_mask = torch.cat(input_attention_mask_list, dim=1)
 
 
+        # generated_output = self.biogpt_decoder.generate(
+        #     inputs_embeds=input_embeddings,
+        #     attention_mask=input_attention_mask,
+        #     max_new_tokens=max_new_tokens,
+        #     num_beams=num_beams, 
+        #     do_sample=do_sample, 
+        #     top_k=top_k,
+        #     top_p=top_p,
+        #     eos_token_id=self.eos_token_id, 
+        #     pad_token_id=self.tokenizer.pad_token_id, 
+        # )
+
+        # generated_report = self.tokenizer.decode(generated_output[0], skip_special_tokens=True)
+
+        # return generated_report
+
+
+
         generated_output = self.biogpt_decoder.generate(
             inputs_embeds=input_embeddings,
             attention_mask=input_attention_mask,
-            max_new_tokens=max_new_tokens,
-            num_beams=num_beams, 
-            do_sample=do_sample, 
-            top_k=top_k,
-            top_p=top_p,
-            eos_token_id=self.eos_token_id, 
-            pad_token_id=self.tokenizer.pad_token_id, 
+            max_new_tokens=max_new_tokens, # Use the passed max_new_tokens (e.g., 80)
+            # Temporarily disable beam search and force more tokens
+            num_beams=1, # <--- Set to 1 for simpler greedy generation
+            do_sample=True, # <--- Enable sampling to see more diverse (possibly garbled) output
+            temperature=1.0, # <--- Add temperature for more randomness
+            top_k=50, # <--- Sample from top 50 words
+            top_p=0.9, # <--- Nucleus sampling
+            eos_token_id=self.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
         )
 
-        generated_report = self.tokenizer.decode(generated_output[0], skip_special_tokens=True)
+        # The fix for decoding from previous step (remove the [0] if generated_output is 1D)
+        generated_report = self.tokenizer.decode(generated_output[0] if generated_output.ndim == 2 else generated_output, skip_special_tokens=True)
 
         return generated_report

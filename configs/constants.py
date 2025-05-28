@@ -4,5 +4,6 @@ MODEL_NAMES = {
 }
 MODEL_WEIGHTS = {
     "biomedclip": '/content/drive/MyDrive/biomedclip_finetunedtry3.pth',
+    "biogpt" : '/content/drive/MyDrive/biogpt_finetuned1.pth'
 }
 

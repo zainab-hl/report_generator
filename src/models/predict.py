@@ -51,6 +51,7 @@ def generate_xray_report(
     model = XrayReportGenerator(
         biomedclip_model_name=MODEL_NAMES['biomedclip'],
         biomedclip_weights_path=MODEL_WEIGHTS['biomedclip'],
+        biogpt_weights_path = MODEL_WEIGHTS['biogpt'],
         qformer_config=qformer_config
     ).to(device)
     model.eval() 
