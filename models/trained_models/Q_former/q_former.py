@@ -36,14 +36,6 @@ class BaseModelOutputWithPastAndCrossAttentions(ModelOutput):
             cross_attentions=cross_attentions,
         )
 
-# ACT2FN = {
-#     """A dictionary mapping activation function names to PyTorch functions."""
-#     "gelu": F.gelu,
-#     "relu": F.relu,
-#     "tanh": torch.tanh,
-#     "sigmoid": torch.sigmoid,
-# }
-
 def apply_chunking_to_forward(
     forward_fn, chunk_size, seq_len_dim, *input_tensors
 ):
@@ -61,7 +53,6 @@ def apply_chunking_to_forward(
         )
     return forward_fn(*input_tensors)
 
-# --- BertConfig for Q-Former ---
 class BertConfig:
     """
     Configuration for the Q-Former's internal BERT-like layers.
@@ -181,7 +172,7 @@ class BertSelfAttention(nn.Module):
         mixed_query_layer = self.query(hidden_states)
         query_layer = self.transpose_for_scores(mixed_query_layer)
 
-        past_key_value = (key_layer, value_layer) # Cache current key/value for next steps
+        past_key_value = (key_layer, value_layer) 
 
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
@@ -255,7 +246,7 @@ class BertAttention(nn.Module):
         super().__init__()
         self.self = BertSelfAttention(config, is_cross_attention)
         self.output = BertSelfOutput(config)
-        self.pruned_heads = set() # For head pruning (not implemented in this example)
+        self.pruned_heads = set() 
 
     def prune_heads(self, heads: set):
         """Placeholder for pruning attention heads."""
@@ -287,7 +278,7 @@ class BertAttention(nn.Module):
         )
         attention_output = self.output(self_outputs[0], hidden_states)
 
-        outputs = (attention_output,) + self_outputs[1:] # Add attentions if requested
+        outputs = (attention_output,) + self_outputs[1:] 
         return outputs
 
 
@@ -416,7 +407,6 @@ class BertLayer(nn.Module):
                 cross_attention_output,
             )
         else:
-            # If no cross-attention, just apply the standard FFN (less common for Q-Former layers)
             layer_output = apply_chunking_to_forward(
                 self.feed_forward_chunk,
                 self.chunk_size_feed_forward,
@@ -460,7 +450,7 @@ class BertEncoder(nn.Module):
         input_shape: Tuple[int, ...],
         device: torch.device,
         is_decoder: bool,
-        has_query: bool = False, # Not typically used for encoder masks
+        has_query: bool = False, 
     ) -> torch.Tensor:
         """
         Prepares and extends an attention mask for broadcasting across attention heads.
@@ -558,7 +548,7 @@ class BertEncoder(nn.Module):
                     query_length,
                 )
 
-            hidden_states = layer_outputs[0] # Output of the current layer
+            hidden_states = layer_outputs[0] 
             if use_cache:
                 next_decoder_cache += (layer_outputs[-1],)
             if output_attentions:
@@ -589,9 +579,6 @@ class BertEncoder(nn.Module):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
-
-
-# --- Qformer Implementation ---
 
 class Qformer(nn.Module):
     """

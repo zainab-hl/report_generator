@@ -1,5 +1,6 @@
-model_config = {
-    input_image_size = 244 * 244,
-    image_features_dim = 512,
-    llm_token_dim = ,
+{
+    "model_config": {
+        "input_image_size": 59536,
+        "image_features_dim": 512
+    }
 }

@@ -6,15 +6,15 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 sys.path.insert(0, project_root)
 
 from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
-from models.trained_models.Q_former.q_former import BertConfig # BertConfig is defined in q_former.py
-from configs.constants import MODEL_NAMES, MODEL_WEIGHTS # To get model names and weights paths
+from models.trained_models.Q_former.q_former import BertConfig 
+from configs.constants import MODEL_NAMES, MODEL_WEIGHTS 
 
 def generate_xray_report(
     image_path: str,
     prompt_text: Optional[str] = None,
     max_new_tokens: int = 100,
-    num_beams: int = 4, # Use beam search for better quality generation
-    do_sample: bool = False, # Set to True for more diverse outputs (e.g., for exploration)
+    num_beams: int = 4, 
+    do_sample: bool = False,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
