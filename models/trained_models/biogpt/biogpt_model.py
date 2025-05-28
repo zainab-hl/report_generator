@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
+from typing import Optional
 from transformers import BioGptForCausalLM, BioGptTokenizer
-from ..BioMedClip import BiomedCLIPEncoder 
+from models.trained_models.BioMedClip.encoder import BiomedCLIPEncoder
 from ..Q_former.q_former import Qformer
+
 
 class XrayReportGenerator(nn.Module):
     def __init__(self, biomedclip_model_name, biomedclip_weights_path, qformer_config):

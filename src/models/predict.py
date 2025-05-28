@@ -1,12 +1,12 @@
 import torch
 import os
 import sys
+from typing import Optional
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, project_root)
 
-# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-# sys.path.insert(0, project_root)
-
-from models.tained_models.biogpt.biogpt_model import XrayReportGenerator
-from models.Q_former.q_former import BertConfig # BertConfig is defined in q_former.py
+from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
+from models.trained_models.Q_former.q_former import BertConfig # BertConfig is defined in q_former.py
 from configs.constants import MODEL_NAMES, MODEL_WEIGHTS # To get model names and weights paths
 
 def generate_xray_report(
@@ -75,7 +75,7 @@ def generate_xray_report(
     return generated_report
 
 if __name__ == "__main__":
-    example_image_path = "path/to/your/xray_image.png" 
+    example_image_path = "/content/bone-xray-hands.jpg" 
     
     if not os.path.exists(example_image_path):
         print(f"Error: Image file not found at {example_image_path}")

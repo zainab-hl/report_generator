@@ -2,8 +2,17 @@ import torch
 import torch.nn as nn
 from PIL import Image
 import open_clip
-from BioMedClip.constants import MODEL_NAMES, MODEL_WEIGHTS
+import os
+project_path = '/content/report_generator' 
+os.chdir(project_path)
+print(f"Current working directory: {os.getcwd()}")
 
+import sys
+if project_path not in sys.path:
+    sys.path.append(project_path)
+    print(f"Added '{project_path}' to sys.path")
+from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class BiomedCLIPEncoder:
     def __init__(self, model_name=MODEL_NAMES['biomedclip'],
                 weights_path=MODEL_WEIGHTS['biomedclip']):
@@ -12,7 +21,7 @@ class BiomedCLIPEncoder:
 
         # Load fine-tuned weights if provided
         if weights_path:
-            self.model.load_state_dict(torch.load(weights_path, map_location=torch.device('cpu'), weights_only=True))
+            self.model.load_state_dict(torch.load(weights_path, map_location=torch.device(device), weights_only=True))
 
         # Set model to evaluation mode
         self.model.eval()

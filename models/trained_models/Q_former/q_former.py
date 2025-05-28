@@ -5,6 +5,8 @@ import torch.utils.checkpoint
 import math
 import warnings
 from typing import Optional, Tuple, Dict, Any
+from transformers.activations import ACT2FN
+
 
 # class MockLogger:
 #     """A minimal logger mock to prevent errors from missing 'logging' module."""
@@ -13,7 +15,7 @@ from typing import Optional, Tuple, Dict, Any
 # logger = MockLogger()
 
 class ModelOutput:
-=    def __init__(self, **kwargs):
+    def __init__(self, **kwargs):
         self.kwargs = kwargs
     def __getitem__(self, key):
         return self.kwargs[key]
@@ -67,20 +69,20 @@ class BertConfig:
     that make up the Q-Former.
     """
     def __init__(self,
-                 hidden_size: int = 768, # Dimensionality of the query embeddings and internal representations
-                 num_hidden_layers: int = 6, # Number of Transformer layers in the Q-Former
-                 num_attention_heads: int = 12, # Number of attention heads in each attention layer
-                 intermediate_size: int = 3072, # Size of the "intermediate" (feed-forward) layer
-                 hidden_act: str = "gelu", # Activation function for the intermediate layer
-                 hidden_dropout_prob: float = 0.1, # Dropout probability for hidden states
-                 attention_probs_dropout_prob: float = 0.1, # Dropout probability for attention weights
-                 initializer_range: float = 0.02, # Standard deviation for weight initialization
-                 layer_norm_eps: float = 1e-12, # Epsilon for layer normalization
-                 add_cross_attention: bool = True, # Enable cross-attention to image features
-                 cross_attention_freq: int = 1, # How often cross-attention layers appear (e.g., 1 means every layer)
-                 encoder_width: int = 512, # Dimensionality of the input image features from BiomedCLIP
-                 num_query_tokens: int = 32, # Number of learnable query embeddings
-                 gradient_checkpointing: bool = False): # Enable gradient checkpointing for memory saving
+                  hidden_size: int = 768, # Dimensionality of the query embeddings and internal representations
+                  num_hidden_layers: int = 6, # Number of Transformer layers in the Q-Former
+                  num_attention_heads: int = 12, # Number of attention heads in each attention layer
+                  intermediate_size: int = 3072, # Size of the "intermediate" (feed-forward) layer
+                  hidden_act: str = "gelu", # Activation function for the intermediate layer
+                  hidden_dropout_prob: float = 0.1, # Dropout probability for hidden states
+                  attention_probs_dropout_prob: float = 0.1, # Dropout probability for attention weights
+                  initializer_range: float = 0.02, # Standard deviation for weight initialization
+                  layer_norm_eps: float = 1e-12, # Epsilon for layer normalization
+                  add_cross_attention: bool = True, # Enable cross-attention to image features
+                  cross_attention_freq: int = 1, # How often cross-attention layers appear (e.g., 1 means every layer)
+                  encoder_width: int = 512, # Dimensionality of the input image features from BiomedCLIP
+                  num_query_tokens: int = 32, # Number of learnable query embeddings
+                  gradient_checkpointing: bool = False): # Enable gradient checkpointing for memory saving
         self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
