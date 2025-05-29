@@ -48,7 +48,7 @@ class XrayReportGenerator(nn.Module):
             import warnings
             warnings.warn("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
 
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     def forward(self,
         # args for inference
         image_path: Optional[str] = None, 
@@ -66,6 +66,7 @@ class XrayReportGenerator(nn.Module):
         is_training = image_features is not None and input_ids is not None and attention_mask is not None   
         if image_path is not None and not is_training:
             image_features = self.biomedclip_encoder.encode_image(image_path)
+            image_features = image_features.to(device)
         elif image_features is None:
             raise ValueError("Either image_path or image_features must be provided.")
         
