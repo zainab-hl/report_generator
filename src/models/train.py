@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from transformers import BioGptTokenizer, AdamW, get_scheduler
-import json
+from transformers import BioGptTokenizer
+from transformers.optimization import get_scheduler 
+from torch.optim import AdamW 
 import os
 import sys
 from tqdm.auto import tqdm 
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) # Added an extra '..'
 sys.path.insert(0, project_root)
 
 from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
