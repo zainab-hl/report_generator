@@ -49,18 +49,18 @@ class XrayReportGenerator(nn.Module):
             warnings.warn("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
 
 
-    def forward(self, 
+    def forward(self,
         # args for inference
-        image_path, 
-        prompt_text: Optional[str] = None, 
-        max_new_tokens=50, 
-        num_beams=1, 
-        do_sample=False, 
-        top_k=None, 
-        top_p=None,
-        # args fo training
+        image_path: Optional[str] = None, 
+        prompt_text: Optional[str] = None,
+        max_new_tokens: int = 50,
+        num_beams: int = 1,
+        do_sample: bool = False,
+        top_k: Optional[int] = None,
+        top_p: Optional[float] = None,
+        # args for training
         image_features: Optional[torch.Tensor] = None,
-        input_ids: Optional[torch.Tensor] = None,
+        input_ids: Optional[torch.Tensor] = None, 
         attention_mask: Optional[torch.Tensor] = None,
         ):
         is_training = image_features is not None and input_ids is not None and attention_mask is not None   
@@ -97,13 +97,14 @@ class XrayReportGenerator(nn.Module):
                 device = query_embeddings.device
             )
             decoder_labels = torch.cat([ignored_labels_for_query, labels], dim=1)
-            outputs = self.biogpt_decoder(
-                input_ids=None, 
-                inputs_embeds=decoder_input_embeddings,
-                attention_mask=decoder_attention_mask,
-                labels=decoder_labels,
-                return_dict=True
-            )
+            biogpt_decoder_kwargs = {
+                "inputs_embeds": decoder_input_embeddings,
+                "attention_mask": decoder_attention_mask,
+                "labels": decoder_labels,
+                "return_dict": True
+            }
+
+            outputs = self.biogpt_decoder(**biogpt_decoder_kwargs) 
             return outputs.loss
         else:
             input_embeddings_list = [query_embeddings]
