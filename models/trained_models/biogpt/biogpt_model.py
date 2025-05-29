@@ -93,15 +93,16 @@ class XrayReportGenerator(nn.Module):
             ignored_labels_for_query = torch.full(
                 (query_embeddings.shape[0], query_embeddings.shape[1]),
                 -100,
-                dtupe = torch.long,
+                dtype = torch.long,
                 device = query_embeddings.device
             )
             decoder_labels = torch.cat([ignored_labels_for_query, labels], dim=1)
             outputs = self.biogpt_decoder(
-                input_embeds = decoder_input_embeddings,
-                attention_mask = decoder_attention_mask,
-                labels = decoder_labels,
-                return_dict = True
+                input_ids=None, 
+                inputs_embeds=decoder_input_embeddings,
+                attention_mask=decoder_attention_mask,
+                labels=decoder_labels,
+                return_dict=True
             )
             return outputs.loss
         else:

@@ -126,6 +126,7 @@ def train_model():
             attention_mask = batch["attention_mask"].to(device)
 
             loss = model(
+                image_path=None, 
                 image_features=image_embedding,
                 input_ids=input_ids,
                 attention_mask=attention_mask
@@ -161,19 +162,6 @@ def train_model():
 
 
 if __name__ == "__main__":
-    try:
-        import google.colab
-        IN_COLAB = True
-    except ImportError:
-        IN_COLAB = False
-
-    if IN_COLAB:
-        print("Running in Google Colab environment. Mounting Google Drive...")
-        from google.colab import drive
-        drive.mount('/content/drive')
-        print("Google Drive mounted.")
-    else:
-        print("Running locally or in another environment.")
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root_for_sys_path = os.path.abspath(os.path.join(current_dir, '..'))
