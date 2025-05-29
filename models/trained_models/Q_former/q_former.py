@@ -462,7 +462,8 @@ class BertEncoder(nn.Module):
         elif attention_mask.dim() == 2:
             extended_attention_mask = attention_mask[:, None, None, :]
             extended_attention_mask = extended_attention_mask.to(dtype=self.layer[0].attention.self.query.weight.dtype)
-            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0 # A common masking value
+            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0 
+            extended_attention_mask = extended_attention_mask.to(device)
         else:
             raise ValueError(
                 f"Wrong shape for input_shape ({input_shape}) or attention_mask ({attention_mask.shape})"
