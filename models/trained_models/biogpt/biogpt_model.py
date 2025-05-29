@@ -16,7 +16,7 @@ class XrayReportGenerator(nn.Module):
 
         assert qformer_config.encoder_width == self.biomedclip_encoder.feature_dim, \
             "Q-Former encoder_width must match BiomedCLIP feature_dim"
-
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.qformer = Qformer(qformer_config)
 
         self.tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
@@ -66,7 +66,7 @@ class XrayReportGenerator(nn.Module):
         is_training = image_features is not None and input_ids is not None and attention_mask is not None   
         if image_path is not None and not is_training:
             image_features = self.biomedclip_encoder.encode_image(image_path)
-            image_features = image_features.to(device)
+            image_features = image_features.to(self.device)
         elif image_features is None:
             raise ValueError("Either image_path or image_features must be provided.")
         
