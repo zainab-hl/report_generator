@@ -7,14 +7,10 @@ from torch.optim import AdamW
 import os
 import sys
 from tqdm.auto import tqdm
-import json # Make sure json is imported
-import warnings # Add warnings import for the tokenizer pad_token_id check
+import json 
+import warnings 
 
-# Corrected project_root calculation (if train.py is at /content/report_generator/src/models/train.py)
-# If train.py is at: /content/report_generator/src/models/train.py
-# os.path.dirname(__file__) -> /content/report_generator/src/models
-# '..' -> /content/report_generator/src
-# '..' -> /content/report_generator (This is your desired project root)
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)
 
@@ -27,7 +23,7 @@ from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 class TrainingConfig:
     def __init__(self):
         # Now this points to the DIRECTORY containing your JSON files
-        self.dataset_dir = "/content/drive/MyDrive/dataLLM" # <--- IMPORTANT: This is now a directory
+        self.dataset_dir = "/content/drive/MyDrive/dataLLM" 
         self.output_dir = "/content/drive/MyDrive/finetuned_report_generator"
         self.max_seq_length = 256
         self.train_batch_size = 4
