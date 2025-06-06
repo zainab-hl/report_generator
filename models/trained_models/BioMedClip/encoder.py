@@ -5,7 +5,6 @@ import open_clip
 import os
 project_path = '/content/report_generator' 
 os.chdir(project_path)
-# print(f"Current working directory: {os.getcwd()}")
 
 import sys
 if project_path not in sys.path:
@@ -25,7 +24,7 @@ class BiomedCLIPEncoder:
 
         self.feature_dim = 512
 
-    def encode_image(self, image_path):
+    def encode_image(self, image_path):     
         image = Image.open(image_path).convert("RGB")
         image_input = self.preprocess(image).unsqueeze(0)  
 

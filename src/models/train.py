@@ -22,7 +22,6 @@ from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 # --- Configuration for Training ---
 class TrainingConfig:
     def __init__(self):
-        # Now this points to the DIRECTORY containing your JSON files
         self.dataset_dir = "/content/drive/MyDrive/dataLLM" 
         self.output_dir = "/content/drive/MyDrive/finetuned_report_generator"
         self.max_seq_length = 256
