@@ -14,7 +14,6 @@ import warnings
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)
 
-# Now these imports should work correctly:
 from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
 from models.trained_models.Q_former.q_former import BertConfig
 from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
@@ -29,7 +28,7 @@ class TrainingConfig:
         self.eval_batch_size = 8
         self.learning_rate = 5e-5
         self.num_epochs = 3
-        self.warmup_steps = 0.1 # Percentage of total steps for warmup
+        self.warmup_steps = 0.1 
         self.gradient_accumulation_steps = 1
 
 class ReportGenerationDataset(Dataset):
