@@ -22,7 +22,7 @@ from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 # --- Configuration for Training ---
 class TrainingConfig:
     def __init__(self):
-        self.dataset_dir = "/content/drive/MyDrive/dataLLM" 
+        self.dataset_dir = "/content/drive/MyDrive/processed_dataset" 
         self.output_dir = "/content/drive/MyDrive/finetuned_report_generator"
         self.max_seq_length = 256
         self.train_batch_size = 4
@@ -32,14 +32,12 @@ class TrainingConfig:
         self.warmup_steps = 0.1 # Percentage of total steps for warmup
         self.gradient_accumulation_steps = 1
 
-# --- Custom Dataset Class (MODIFIED) ---
 class ReportGenerationDataset(Dataset):
     def __init__(self, data_dir: str, tokenizer: BioGptTokenizer, max_seq_length: int = 256):
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
         self.data = [] # This will store all loaded data from all JSON files
 
-        # Add special tokens to tokenizer if not already present
         if self.tokenizer.bos_token is None:
             self.tokenizer.add_special_tokens({'bos_token': '<s>'})
         if self.tokenizer.eos_token is None:
@@ -48,14 +46,11 @@ class ReportGenerationDataset(Dataset):
             self.tokenizer.add_special_tokens({'pad_token': self.tokenizer.eos_token})
 
         print(f"Loading data from directory: {data_dir}")
-        # Iterate through all files in the given directory
         for filename in os.listdir(data_dir):
-            if filename.endswith('.json'): # Assuming your files are .json
+            if filename.endswith('.json'): 
                 filepath = os.path.join(data_dir, filename)
                 try:
                     with open(filepath, 'r') as f:
-                        # Assuming each JSON file contains a single object like {"embedding": [...], "report": "..."}
-                        # If a file contains a list of objects, you'll need to adjust this
                         entry = json.load(f)
                         self.data.append(entry)
                 except json.JSONDecodeError:
@@ -105,13 +100,11 @@ def train_model():
     # Create output directory if it doesn't exist
     os.makedirs(config.output_dir, exist_ok=True)
 
-    # Initialize Tokenizer (same as in XrayReportGenerator)
     tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
         warnings.warn("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
 
-    # Load Dataset (now passing the directory path)
     train_dataset = ReportGenerationDataset(config.dataset_dir, tokenizer, config.max_seq_length) # <--- Changed
     train_dataloader = DataLoader(train_dataset, batch_size=config.train_batch_size, shuffle=True)
 
@@ -121,7 +114,7 @@ def train_model():
         num_hidden_layers=6,
         num_attention_heads=12,
         intermediate_size=3072,
-        encoder_width=512, # Must match BiomedCLIPEncoder.feature_dim
+        encoder_width=512, 
         num_query_tokens=32,
         add_cross_attention=True,
         cross_attention_freq=1,
@@ -181,13 +174,13 @@ def train_model():
                 print(f"Step {completed_steps}, Loss: {loss.item() * config.gradient_accumulation_steps:.4f}")
 
         print(f"Epoch {epoch+1} finished. Saving model...")
-        save_path = os.path.join(config.output_dir, f"xray_report_generator_epoch_{epoch+1}.pth")
+        save_path = os.path.join(config.output_dir, f"report_generator_epoch_{epoch+1}.pth")
         torch.save(model.state_dict(), save_path)
         print(f"Model saved to {save_path}")
 
     print("Training complete!")
 
-    final_save_path = os.path.join(config.output_dir, "xray_report_generator_final.pth")
+    final_save_path = os.path.join(config.output_dir, "report_generator_final.pth")
     torch.save(model.state_dict(), final_save_path)
     print(f"Final model saved to {final_save_path}")
 
@@ -198,7 +191,7 @@ def train_model():
 if __name__ == "__main__":
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root_for_sys_path = os.path.abspath(os.path.join(current_dir, '..', '..')) # Adjusted path for train.py in src/models
+    project_root_for_sys_path = os.path.abspath(os.path.join(current_dir, '..', '..')) 
     if project_root_for_sys_path not in sys.path:
         sys.path.insert(0, project_root_for_sys_path)
         print(f"Added {project_root_for_sys_path} to sys.path")
