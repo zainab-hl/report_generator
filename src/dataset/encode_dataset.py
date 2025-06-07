@@ -2,33 +2,29 @@ import os
 import json
 import torch
 from google.colab import drive
-
-# Mount Google Drive
-drive.mount('/content/drive')
+import sys
 
 # --- Configuration ---
 PROJECT_PATH = '/content/report_generator'
 DATASET_PATH = '/content/drive/MyDrive/dataSET' 
 OUTPUT_DATASET_PATH = '/content/drive/MyDrive/processed_dataset' 
 
-import sys
 if PROJECT_PATH not in sys.path:
     sys.path.append(PROJECT_PATH)
     print(f"Added '{PROJECT_PATH}' to sys.path for module import.")
 
-# Change current working directory to project_path for relative imports within the project
 os.chdir(PROJECT_PATH)
 print(f"Current working directory set to: {os.getcwd()}")
 
-# Import the encoder class
 try:
-    from models.tained_models.BioMedClip.encoder import BiomedCLIPEncoder
+    from models.trained_models.BioMedClip.encoder import BiomedCLIPEncoder
     from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 except ImportError as e:
     print(f"Error importing modules: {e}")
     print("Please ensure 'encoder.py' and 'configs/constants.py' are correctly located within 'PROJECT_PATH' and the necessary dependencies are installed.")
     sys.exit(1)
 
+# Ensure output directory exists
 os.makedirs(OUTPUT_DATASET_PATH, exist_ok=True)
 print(f"Output directory '{OUTPUT_DATASET_PATH}' ensured.")
 
@@ -46,11 +42,36 @@ except Exception as e:
 
 # --- Process the Dataset ---
 print(f"Starting dataset processing from: {DATASET_PATH}")
-processed_count = 0
+
+# 1. Get all entries and sort them
+all_entries = []
 for entry_name in os.listdir(DATASET_PATH):
     entry_path = os.path.join(DATASET_PATH, entry_name)
-
     if os.path.isdir(entry_path):
+        all_entries.append(entry_path)
+
+all_entries.sort() # Sort the list of entry paths
+
+total_entries = len(all_entries)
+if total_entries == 0:
+    print("No valid directories found in the dataset path. Exiting.")
+    sys.exit(0)
+
+print(f"Found {total_entries} entries. Processing in 20% chunks.")
+
+# Calculate chunk size
+chunk_size = max(1, total_entries // 5) # Ensure chunk size is at least 1
+
+processed_count = 0
+
+for i in range(0, total_entries, chunk_size):
+    chunk_start = i
+    chunk_end = min(i + chunk_size, total_entries)
+    current_chunk = all_entries[chunk_start:chunk_end]
+
+    print(f"\n--- Processing chunk {chunk_start // chunk_size + 1} of {total_entries // chunk_size + (1 if total_entries % chunk_size > 0 else 0)} ({len(current_chunk)} entries) ---")
+
+    for entry_path in current_chunk:
         image_file = None
         caption_file = None
 
@@ -66,7 +87,6 @@ for entry_name in os.listdir(DATASET_PATH):
             try:
                 # 1. Encode the image
                 image_features = encoder.encode_image(image_file)
-                # Convert tensor to list for JSON serialization
                 image_embedding = image_features.squeeze(0).tolist()
 
                 # 2. Read the caption
