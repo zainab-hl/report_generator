@@ -72,8 +72,9 @@ def apply_chunking_to_forward(
     return forward_fn(*input_tensors)
 
 # --- BertConfig Class for Q-Former ---
-@AutoConfig.register("qformer_bert_config")
-class BertConfig(PretrainedConfig): # Changed from AutoConfig to PretrainedConfig for consistency with base classes
+# FIX HERE: Corrected the AutoConfig.register decorator for BertConfig
+@AutoConfig.register(model_type="qformer_bert_config", config_class=BertConfig)
+class BertConfig(PretrainedConfig): 
     """
     Configuration for the Q-Former's internal BERT-like layers.
     This defines the architecture parameters for the Transformer blocks
@@ -98,7 +99,6 @@ class BertConfig(PretrainedConfig): # Changed from AutoConfig to PretrainedConfi
         position_embedding_type="absolute",
         use_cache=True,
         classifier_dropout=None,
-        # Q-Former specific parameters (ensure these match your usage in Qformer)
         encoder_width=768, 
         num_query_tokens=32, 
         cross_attention_freq=1, 
@@ -643,7 +643,7 @@ class BiomedCLIPEncoder(nn.Module):
         return features
 
 # --- XrayReportGeneratorConfig Class ---
-@AutoConfig.register(model_type="xray_report_generator") 
+@AutoConfig.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig) # Corrected registration
 class XrayReportGeneratorConfig(PretrainedConfig): # Inherit from PretrainedConfig
     """
     Configuration for the XrayReportGenerator model.
@@ -731,13 +731,9 @@ class XrayReportGenerator(nn.Module):
             self.tokenizer.add_special_tokens({'pad_token': self.tokenizer.eos_token})
             warnings.warn("Tokenizer pad_token is None, setting to eos_token.")
 
-        # Initialize BioGPT decoder
+
         self.biogpt_decoder = BioGptForCausalLM.from_pretrained(self.biogpt_base_model) 
         self.biogpt_decoder.to(self.device) 
-
-        # The biogpt_weights_path is handled by the main model's state_dict loading
-        # You would only load it explicitly here if it was a separate finetuned component
-        # that wasn't included in the overall model.bin. Assuming it is included.
 
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
 
