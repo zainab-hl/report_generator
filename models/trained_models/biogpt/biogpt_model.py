@@ -5,7 +5,7 @@ from transformers import BioGptForCausalLM, BioGptTokenizer
 from models.trained_models.BioMedClip.encoder import BiomedCLIPEncoder
 from ..Q_former.q_former import Qformer
 
-@AutoModel.register(model_type="xray_report_generator") 
+# @AutoModel.register(model_type="xray_report_generator") 
 class XrayReportGenerator(nn.Module):
     def __init__(self, biomedclip_model_name, biomedclip_weights_path, qformer_config,
                  biogpt_weights_path: Optional[str] = None): 
