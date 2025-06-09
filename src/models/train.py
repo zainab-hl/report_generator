@@ -173,13 +173,13 @@ def train_model():
                 print(f"Step {completed_steps}, Loss: {loss.item() * config.gradient_accumulation_steps:.4f}")
 
         print(f"Epoch {epoch+1} finished. Saving model...")
-        save_path = os.path.join(config.output_dir, f"report_generator_epoch_{epoch+1}.pth")
+        save_path = os.path.join(config.output_dir, f"report_generator_epoch__2_{epoch+1}.pth")
         torch.save(model.state_dict(), save_path)
         print(f"Model saved to {save_path}")
 
     print("Training complete!")
 
-    final_save_path = os.path.join(config.output_dir, "report_generator_final.pth")
+    final_save_path = os.path.join(config.output_dir, "report_generator_final_2_.pth")
     torch.save(model.state_dict(), final_save_path)
     print(f"Final model saved to {final_save_path}")
 
