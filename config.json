@@ -1,9 +1,10 @@
 {
-  "architectures": [
-    "XrayReportGenerator"
-  ],
-  "model_type": "xray_report_generator",
   "_from_auto_class": ["AutoModel"],
+  "architectures": ["XrayReportGenerator"],
+  "model_type": "xray_report_generator",
+  "auto_map": {
+    "AutoModel": "model.XrayReportGenerator"
+  },
   "trust_remote_code": true,
   
   "biomedclip_model_name": "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
