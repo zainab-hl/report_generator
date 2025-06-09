@@ -72,8 +72,7 @@ def apply_chunking_to_forward(
     return forward_fn(*input_tensors)
 
 # --- BertConfig Class for Q-Former ---
-# FIX HERE: Corrected the AutoConfig.register decorator for BertConfig
-@AutoConfig.register(model_type="qformer_bert_config", config_class=BertConfig)
+# FIX: Moved AutoConfig.register to after the class definition
 class BertConfig(PretrainedConfig): 
     """
     Configuration for the Q-Former's internal BERT-like layers.
@@ -127,6 +126,9 @@ class BertConfig(PretrainedConfig):
         self.num_query_tokens = num_query_tokens
         self.cross_attention_freq = cross_attention_freq
         self.gradient_checkpointing = gradient_checkpointing
+
+# Register BertConfig after its definition
+AutoConfig.register(model_type="qformer_bert_config", config_class=BertConfig)
 
 
 # --- Q-Former Sub-components (copied directly from your provided code) ---
@@ -643,8 +645,8 @@ class BiomedCLIPEncoder(nn.Module):
         return features
 
 # --- XrayReportGeneratorConfig Class ---
-@AutoConfig.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig) # Corrected registration
-class XrayReportGeneratorConfig(PretrainedConfig): # Inherit from PretrainedConfig
+# FIX: Moved AutoConfig.register to after the class definition
+class XrayReportGeneratorConfig(PretrainedConfig): 
     """
     Configuration for the XrayReportGenerator model.
     This defines all the parameters needed to initialize an XrayReportGenerator.
@@ -683,6 +685,10 @@ class XrayReportGeneratorConfig(PretrainedConfig): # Inherit from PretrainedConf
             "position_embedding_type": "absolute"
         }
 
+# Register XrayReportGeneratorConfig after its definition
+AutoConfig.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig)
+
+
 # --- XrayReportGenerator Class ---
 @AutoModel.register(config_class=XrayReportGeneratorConfig, model_type="xray_report_generator")
 class XrayReportGenerator(nn.Module):
@@ -695,13 +701,8 @@ class XrayReportGenerator(nn.Module):
         self.max_seq_length = config.max_seq_length
 
         # Initialize BiomedCLIPEncoder
-        # The weights_path argument for BiomedCLIPEncoder's init will be used by open_clip's pretrained parameter.
-        # Your original code used it for a local path; for Hugging Face Hub, it would typically be None or a HF Hub ID.
-        # Assuming you've uploaded a pytorch_model.bin that contains the BiomedCLIP weights,
-        # open_clip will load its base model via `model_name` and the weights from the overall `state_dict` loading.
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=self.biomedclip_model_name,
-            # weights_path=None if loading from overall state_dict or a different HF ID if needed
             weights_path=None # Assume weights come from the main model.bin load
         )
 
@@ -718,8 +719,6 @@ class XrayReportGenerator(nn.Module):
         self.qformer.to(self.device) 
 
         # Initialize tokenizer first, as it's used for eos_token_id and pad_token_id
-        # Use your repo ID for the tokenizer, as you uploaded its files there
-        # If your tokenizer files are in the same repo, AutoTokenizer will find them.
         self.tokenizer = AutoTokenizer.from_pretrained(config._name_or_path if hasattr(config, '_name_or_path') else "microsoft/biogpt")
         
         # Ensure special tokens are added if they were during training
