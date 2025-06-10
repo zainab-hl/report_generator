@@ -8,7 +8,7 @@ import os
 from typing import Optional, Tuple, Dict, Any
 
 # Standard Hugging Face and external library imports
-from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig
+from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig, AutoTokenizer
 from transformers.utils import logging
 from transformers.activations import ACT2FN
 
