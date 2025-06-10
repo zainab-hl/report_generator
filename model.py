@@ -78,7 +78,7 @@ class BertConfig(PretrainedConfig):
     This defines the architecture parameters for the Transformer blocks
     that make up the Q-Former.
     """
-    model_type = "qformer_bert_config"
+    model_type = "qformer_bert_config" # This model_type is still here for internal consistency, but not auto-registered globally
     def __init__(
         self,
         vocab_size=30522,
@@ -126,8 +126,7 @@ class BertConfig(PretrainedConfig):
         self.cross_attention_freq = cross_attention_freq
         self.gradient_checkpointing = gradient_checkpointing
 
-# Register BertConfig after its definition using older syntax
-AutoConfig.register("qformer_bert_config", BertConfig)
+# Removed: AutoConfig.register("qformer_bert_config", BertConfig) - This was causing the conflict
 
 
 # --- Q-Former Sub-components (copied directly from your provided code) ---
@@ -689,7 +688,10 @@ AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 # --- XrayReportGenerator Class ---
 # FIX: Adjusted AutoModel.register to match older syntax
-@AutoModel.register(BertConfig, XrayReportGeneratorConfig) # Pass BertConfig as first positional arg for AutoModel registration
+# Ensure the model_type argument matches the config_class it expects.
+# The `model_type` argument in @AutoModel.register typically refers to the
+# model_type attribute defined in its corresponding config class.
+@AutoModel.register("xray_report_generator", XrayReportGeneratorConfig) # Corrected syntax
 class XrayReportGenerator(nn.Module):
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
         super().__init__()
