@@ -688,7 +688,7 @@ AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 # --- XrayReportGenerator Class ---
 # Changed to positional arguments for config_class and model_class
-@AutoModel.register(XrayReportGeneratorConfig, XrayReportGenerator)
+# @AutoModel.register(XrayReportGeneratorConfig, XrayReportGenerator)
 class XrayReportGenerator(nn.Module):
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
         super().__init__()
