@@ -8,7 +8,7 @@ import os
 from typing import Optional, Tuple, Dict, Any
 
 # Standard Hugging Face and external library imports
-from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig, AutoTokenizer
+from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig
 from transformers.utils import logging
 from transformers.activations import ACT2FN
 
@@ -682,13 +682,13 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "position_embedding_type": "absolute"
         }
 
-# Register XrayReportGeneratorConfig after its definition using positional arguments (reverted)
+# Register XrayReportGeneratorConfig after its definition using positional arguments
 AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
 # --- XrayReportGenerator Class ---
-# Changed to positional argument for config_class, as 'model_type' was unexpected.
-@AutoModel.register(XrayReportGeneratorConfig)
+# Changed to positional arguments for config_class and model_class
+@AutoModel.register(XrayReportGeneratorConfig, XrayReportGenerator)
 class XrayReportGenerator(nn.Module):
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
         super().__init__()
