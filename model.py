@@ -682,16 +682,13 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "position_embedding_type": "absolute"
         }
 
-# Register XrayReportGeneratorConfig after its definition using older syntax
-AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
+# Register XrayReportGeneratorConfig after its definition using keyword arguments
+AutoConfig.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig)
 
 
 # --- XrayReportGenerator Class ---
-# FIX: Adjusted AutoModel.register to match older syntax
-# Ensure the model_type argument matches the config_class it expects.
-# The `model_type` argument in @AutoModel.register typically refers to the
-# model_type attribute defined in its corresponding config class.
-@AutoModel.register("xray_report_generator", XrayReportGeneratorConfig) # Corrected syntax
+# Using keyword arguments for AutoModel.register
+@AutoModel.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig)
 class XrayReportGenerator(nn.Module):
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
         super().__init__()

@@ -4,10 +4,9 @@
   "_from_auto_class": ["AutoModel"],
   "trust_remote_code": true,
   "auto_map": {
-    "AutoConfig": "model.XrayReportGeneratorConfig", 
-    "AutoModel": "model.XrayReportGenerator"         
+    "AutoConfig": "model.XrayReportGeneratorConfig",
+    "AutoModel": "model.XrayReportGenerator"
   },
-
   "biomedclip_model_name": "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
   "biogpt_base_model": "microsoft/biogpt",
   "max_seq_length": 256,
