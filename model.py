@@ -687,8 +687,8 @@ AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
 # --- XrayReportGenerator Class ---
-# Using keyword arguments for AutoModel.register (retained this as it previously fixed 'NoneType' error)
-@AutoModel.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig)
+# Changed to positional argument for config_class, as 'model_type' was unexpected.
+@AutoModel.register(XrayReportGeneratorConfig)
 class XrayReportGenerator(nn.Module):
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
         super().__init__()
