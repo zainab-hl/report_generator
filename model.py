@@ -8,9 +8,10 @@ import os
 from typing import Optional, Tuple, Dict, Any
 
 # Standard Hugging Face and external library imports
-from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig
+from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig, AutoTokenizer
 from transformers.utils import logging
 from transformers.activations import ACT2FN
+from transformers import PreTrainedModel # Import PreTrainedModel
 
 # External library for CLIP models (ensure it's pip installable by user: pip install open_clip_torch)
 import open_clip
@@ -132,7 +133,7 @@ class BertConfig(PretrainedConfig):
 # --- Q-Former Sub-components (copied directly from your provided code) ---
 
 class BertSelfAttention(nn.Module):
-    def __init__(self, config: BertConfig, is_cross_attention: bool):
+    def __init__(self, config: BertConfig):
         super().__init__()
         self.config = config
         if config.hidden_size % config.num_attention_heads != 0:
@@ -146,12 +147,12 @@ class BertSelfAttention(nn.Module):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        if is_cross_attention:
-            self.key = nn.Linear(config.encoder_width, self.all_head_size)
-            self.value = nn.Linear(config.encoder_width, self.all_head_size)
-        else:
-            self.key = nn.Linear(config.hidden_size, self.all_head_size)
-            self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        # This part needs to be dynamic based on whether it's self-attention or cross-attention
+        # For a general BertSelfAttention, assume it can be used for either.
+        # If it's only ever used as self-attention within Q-Former layers, these might be redundant.
+        # However, the BertAttention class differentiates.
+        self.key = nn.Linear(config.hidden_size, self.all_head_size)
+        self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
@@ -173,18 +174,16 @@ class BertSelfAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_attention_mask: Optional[torch.Tensor] = None,
+        encoder_hidden_states: Optional[torch.Tensor] = None, # This is usually for cross-attention
+        encoder_attention_mask: Optional[torch.Tensor] = None, # This is usually for cross-attention
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, ...]:
-        is_cross_attention = encoder_hidden_states is not None
 
-        if is_cross_attention:
-            key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
-            value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
-            attention_mask = encoder_attention_mask
-        elif past_key_value is not None:
+        mixed_query_layer = self.query(hidden_states)
+        query_layer = self.transpose_for_scores(mixed_query_layer)
+
+        if past_key_value is not None:
             key_layer = self.transpose_for_scores(self.key(hidden_states))
             value_layer = self.transpose_for_scores(self.value(hidden_states))
             key_layer = torch.cat([past_key_value[0], key_layer], dim=2)
@@ -193,10 +192,8 @@ class BertSelfAttention(nn.Module):
             key_layer = self.transpose_for_scores(self.key(hidden_states))
             value_layer = self.transpose_for_scores(self.value(hidden_states))
 
-        mixed_query_layer = self.query(hidden_states)
-        query_layer = self.transpose_for_scores(mixed_query_layer)
-
         past_key_value = (key_layer, value_layer)
+
 
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
@@ -239,6 +236,65 @@ class BertSelfAttention(nn.Module):
         return outputs
 
 
+class BertCrossAttention(nn.Module): # Renamed for clarity for Cross-Attention
+    def __init__(self, config: BertConfig):
+        super().__init__()
+        if config.hidden_size % config.num_attention_heads != 0:
+            raise ValueError(
+                f"The hidden size ({config.hidden_size}) is not a multiple of the number of attention "
+                f"heads ({config.num_attention_heads})"
+            )
+
+        self.num_attention_heads = config.num_attention_heads
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+
+        self.query = nn.Linear(config.hidden_size, self.all_head_size)
+        self.key = nn.Linear(config.encoder_width, self.all_head_size) # Key from encoder_width
+        self.value = nn.Linear(config.encoder_width, self.all_head_size) # Value from encoder_width
+
+        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+
+    def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor, # Query from hidden_states (query tokens)
+        encoder_hidden_states: Optional[torch.Tensor] = None, # Keys/Values from encoder_hidden_states (image features)
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        output_attentions: bool = False,
+    ) -> Tuple[torch.Tensor, ...]:
+        
+        query_layer = self.transpose_for_scores(self.query(hidden_states))
+        key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
+        value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
+
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        if encoder_attention_mask is not None:
+            attention_scores = attention_scores + encoder_attention_mask
+
+        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs_dropped = self.dropout(attention_probs)
+
+        if head_mask is not None:
+            attention_probs_dropped = attention_probs_dropped * head_mask
+
+        context_layer = torch.matmul(attention_probs_dropped, value_layer)
+
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(*new_context_layer_shape)
+
+        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        return outputs
+
+
 class BertSelfOutput(nn.Module):
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -253,10 +309,10 @@ class BertSelfOutput(nn.Module):
         return hidden_states
 
 
-class BertAttention(nn.Module):
+class BertAttention(nn.Module): # This combines SelfAttention and SelfOutput
     def __init__(self, config: BertConfig, is_cross_attention: bool = False):
         super().__init__()
-        self.self = BertSelfAttention(config, is_cross_attention)
+        self.self = BertSelfAttention(config) # Always BertSelfAttention
         self.output = BertSelfOutput(config)
         self.pruned_heads = set()
 
@@ -270,8 +326,8 @@ class BertAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_attention_mask: Optional[torch.Tensor] = None,
+        encoder_hidden_states: Optional[torch.Tensor] = None, # Not used in BertSelfAttention's forward here
+        encoder_attention_mask: Optional[torch.Tensor] = None, # Not used in BertSelfAttention's forward here
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, ...]:
@@ -279,10 +335,8 @@ class BertAttention(nn.Module):
             hidden_states,
             attention_mask,
             head_mask,
-            encoder_hidden_states,
-            encoder_attention_mask,
-            past_key_value,
-            output_attentions,
+            output_attentions=output_attentions,
+            past_key_value=past_key_value,
         )
         attention_output = self_outputs[0]
         outputs = self_outputs[1:]
@@ -328,13 +382,12 @@ class BertLayer(nn.Module):
         self.config = config
         self.chunk_size_feed_forward = getattr(config, "chunk_size_feed_forward", 0)
         self.seq_len_dim = 1
-        self.attention = BertAttention(config)
+        self.attention = BertAttention(config) # Self-attention for query tokens
         self.layer_num = layer_num
 
         if self.config.add_cross_attention and layer_num % self.config.cross_attention_freq == 0:
-            self.crossattention = BertAttention(
-                config, is_cross_attention=True
-            )
+            self.crossattention = BertCrossAttention(config) # Separate Cross-Attention
+            self.crossattention_output = BertSelfOutput(config) # Output layer for cross-attention
             self.has_cross_attention = True
         else:
             self.has_cross_attention = False
@@ -342,8 +395,8 @@ class BertLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-        self.intermediate_query = BertIntermediate(config)
-        self.output_query = BertOutput(config)
+        # Removed redundant intermediate_query and output_query as feed_forward_chunk_query was not used
+        # and BertLayer handles this logic directly in its forward.
 
     def forward(
         self,
@@ -354,7 +407,7 @@ class BertLayer(nn.Module):
         encoder_attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
-        query_length: int = 0,
+        query_length: int = 0, # Not directly used in the layer's forward, primarily for Encoder
     ) -> Tuple[torch.Tensor, ...]:
         self_attn_past_key_value = (
             past_key_value[:2] if past_key_value is not None else None
@@ -369,7 +422,7 @@ class BertLayer(nn.Module):
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]
 
-        present_key_value = self_attention_outputs[-1]
+        present_key_value = self_attention_outputs[-1] # This is for self-attention past_key_value
 
         if self.has_cross_attention:
             assert (
@@ -377,22 +430,18 @@ class BertLayer(nn.Module):
             ), "encoder_hidden_states must be given for cross-attention layers when has_cross_attention is True"
 
             cross_attention_outputs = self.crossattention(
-                attention_output,
-                attention_mask,
-                head_mask,
-                encoder_hidden_states,
+                attention_output, # Query from current hidden_states
+                encoder_hidden_states, # Keys/Values from encoder_hidden_states
                 encoder_attention_mask,
+                head_mask, # head_mask is typically for self-attention but can be passed
                 output_attentions=output_attentions,
             )
-            cross_attention_output = cross_attention_outputs[0]
-            outputs = (outputs + cross_attention_outputs[1:])
+            cross_attention_output_from_layer = cross_attention_outputs[0]
+            outputs = outputs + cross_attention_outputs[1:] # Add cross-attention probs if output_attentions
 
-            layer_output = apply_chunking_to_forward(
-                self.feed_forward_chunk_query,
-                self.chunk_size_feed_forward,
-                self.seq_len_dim,
-                cross_attention_output,
-            )
+            # Apply the output layer for cross-attention
+            layer_output = self.crossattention_output(cross_attention_output_from_layer, attention_output)
+
         else:
             layer_output = apply_chunking_to_forward(
                 self.feed_forward_chunk,
@@ -400,20 +449,19 @@ class BertLayer(nn.Module):
                 self.seq_len_dim,
                 attention_output,
             )
+        
+        # Apply the final feed-forward (intermediate and output) after potentially cross-attention
+        layer_output = self.feed_forward_chunk(layer_output)
+
 
         outputs = (layer_output,) + outputs
-        outputs = outputs + (present_key_value,)
+        outputs = outputs + (present_key_value,) # Include present_key_value from self-attention
 
         return outputs
 
     def feed_forward_chunk(self, attention_output: torch.Tensor) -> torch.Tensor:
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
-        return layer_output
-
-    def feed_forward_chunk_query(self, attention_output: torch.Tensor) -> torch.Tensor:
-        intermediate_output = self.intermediate_query(attention_output)
-        layer_output = self.output_query(intermediate_output, attention_output)
         return layer_output
 
 
@@ -687,11 +735,16 @@ AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
 # --- XrayReportGenerator Class ---
-# Changed to positional arguments for config_class and model_class
-# @AutoModel.register(XrayReportGeneratorConfig, XrayReportGenerator)
-class XrayReportGenerator(nn.Module):
+# Now inherits from PreTrainedModel
+class XrayReportGenerator(PreTrainedModel):
+    # Add a base_model_prefix if you plan to save/load with a specific prefix
+    # If not, PreTrainedModel handles this internally.
+    # config_class and base_model_prefix are often class attributes in PreTrainedModel subclasses.
+    config_class = XrayReportGeneratorConfig 
+    base_model_prefix = "xray_report_generator" # Match your model_type or a logical prefix
+
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
-        super().__init__()
+        super().__init__(config) # Pass config to the parent PreTrainedModel constructor
 
         # Access parameters from the config object
         self.biomedclip_model_name = config.biomedclip_model_name
@@ -716,8 +769,8 @@ class XrayReportGenerator(nn.Module):
         self.qformer = Qformer(qformer_bert_config)
         self.qformer.to(self.device)
 
-        # Initialize tokenizer first, as it's used for eos_token_id and pad_token_id
-        self.tokenizer = AutoTokenizer.from_pretrained(config._name_or_path if hasattr(config, '_name_or_path') else "microsoft/biogpt")
+        # Initialize tokenizer using biogpt_base_model from config
+        self.tokenizer = AutoTokenizer.from_pretrained(self.biogpt_base_model)
 
         # Ensure special tokens are added if they were during training
         if self.tokenizer.bos_token is None:
