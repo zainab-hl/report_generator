@@ -661,17 +661,21 @@ class Qformer(nn.Module):
 class BiomedCLIPEncoder(nn.Module):
     def __init__(self, model_name, weights_path): # Removed img_size from here
         super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Define device early
+
         try:
-            # Removed img_size from open_clip.create_model_and_transforms call
-            model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=weights_path if weights_path else True)
+            # Passed device=None to open_clip.create_model_and_transforms to prevent immediate .to() on meta tensor
+            model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=weights_path if weights_path else True, device=None)
         except Exception as e:
             raise ImportError(f"Failed to load open_clip model. Ensure model_name '{model_name}' and weights_path '{weights_path}' are correct, and 'open_clip_torch' is installed. Error: {e}")
 
         self.model = model
         self.preprocess = preprocess
         self.feature_dim = model.visual.output_dim
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
+        
+        # Move the model to the desired device *after* it's been created (and potentially had weights loaded into it by open_clip, or before our custom load).
+        self.model.to(self.device) # This line is now safe
+
 
     def encode_image(self, image_path: str) -> torch.Tensor:
         if not os.path.exists(image_path):
