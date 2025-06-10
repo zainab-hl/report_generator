@@ -682,12 +682,12 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "position_embedding_type": "absolute"
         }
 
-# Register XrayReportGeneratorConfig after its definition using keyword arguments
-AutoConfig.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig)
+# Register XrayReportGeneratorConfig after its definition using positional arguments (reverted)
+AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
 # --- XrayReportGenerator Class ---
-# Using keyword arguments for AutoModel.register
+# Using keyword arguments for AutoModel.register (retained this as it previously fixed 'NoneType' error)
 @AutoModel.register(model_type="xray_report_generator", config_class=XrayReportGeneratorConfig)
 class XrayReportGenerator(nn.Module):
     def __init__(self, config: XrayReportGeneratorConfig): # Now accepts the dedicated config class
