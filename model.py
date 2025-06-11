@@ -664,7 +664,7 @@ class BiomedCLIPEncoder(nn.Module):
             # First, create the base model with its default pretrained weights
             # For "hf-hub:..." models, pretrained=True should load the model from Hugging Face.
             self.model, _, self.preprocess = open_clip.create_model_and_transforms(
-                model_name, pretrained=model_name, device=None # device=None as it's moved later
+                model_name, pretrained=model_name, device=None 
             )
             logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully.")
 
@@ -706,7 +706,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
 
     def __init__(
         self,
-        biomedclip_model_name: str = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+        biomedclip_model_name: str = "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
         biogpt_base_model: str = "microsoft/biogpt",
         qformer_config: Optional[Dict[str, Any]] = None,
         max_seq_length: int = 256,
