@@ -18,6 +18,8 @@ from transformers import (
     AutoConfig,
     PreTrainedModel,
     AutoTokenizer,
+    AutoProcessor, 
+    AutoModel, 
     BertConfig,
     AutoProcessor,
     AutoModel,
@@ -607,59 +609,47 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            open_clip_hf_repo_id_only = model_name.replace("hf-hub:", "")
+            # Load the model and preprocessing function using open_clip.create_model_from_pretrained.
+            # CRUCIAL: Do NOT pass the 'device' argument here.
+            # Let open_clip handle its internal default device placement, which seems to avoid the meta tensor bug for you.
+            full_open_clip_model, self.preprocess_fn = open_clip.create_model_from_pretrained(model_name)
 
-            config_file_path = hf_hub_download(
-                repo_id=open_clip_hf_repo_id_only,
-                filename="open_clip_config.json",
-                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-            )
-            with open(config_file_path, 'r') as f:
-                oc_config = json.load(f)
-
-            model_architecture_name = oc_config['model_cfg']['vision_cfg']['timm_model_name']
-            text_model_architecture_name = oc_config['model_cfg']['text_cfg']['hf_model_name']
-
-            full_open_clip_model, self.preprocess_fn = open_clip.create_model_and_transforms(
-                model_architecture_name,
-                pretrained=None,
-                device='cpu'
-            )
-
-            open_clip_base_weights_path = hf_hub_download(
-                repo_id=open_clip_hf_repo_id_only,
-                filename="open_clip_pytorch_model.bin",
-                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-            )
-
-            full_open_clip_model.load_state_dict(
-                torch.load(open_clip_base_weights_path, map_location='cpu')
-            )
-
+            # After the model is loaded (likely on CPU by default from open_clip),
+            # explicitly move the entire model to our desired target device (self.device).
             full_open_clip_model.to(self.device)
 
-            self.model = full_open_clip_model.visual
-            logger.info(f"BiomedCLIPEncoder: Model '{model_name}' loaded manually via open_clip on {self.device}.")
+            # Ensure the model is in evaluation mode
+            full_open_clip_model.eval()
 
+            # Access the visual encoder part of the loaded open_clip model
+            self.model = full_open_clip_model.visual
+            logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded via open_clip and moved to {self.device}.")
+
+            # If custom fine-tuned weights are provided, load them.
             if weights_path and os.path.exists(weights_path):
+                # Ensure map_location is set to the model's current device.
                 self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
                 logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
                 logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
         except Exception as e:
+            # Re-raise the error with a more specific message about open_clip loading failure.
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
 
-        self.model.eval()
-
+        # Determine feature_dim from a dummy forward pass to get the actual output dimension
         with torch.no_grad():
             dummy_image = Image.new('RGB', (224, 224), color='red')
+            # Preprocess the dummy image and move to the current device
             dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
             dummy_output = self.model(dummy_input)
             self.feature_dim = dummy_output.shape[-1]
             logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from open_clip visual model output.")
 
     def encode_image(self, image_path: str) -> torch.Tensor:
+        """
+        Encodes an image path into a normalized feature tensor using BiomedCLIP.
+        """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found at: {image_path}")
 
@@ -671,27 +661,21 @@ class BiomedCLIPEncoder(nn.Module):
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
 
-# --- Qformer Class ---
+
+# --- Qformer Class (Keep as is, since it was correct and passed checks) ---
 class Qformer(nn.Module):
     def __init__(self, config: BertConfig):
         super().__init__()
         self.config = config
 
-        # Query tokens are learnable parameters
         self.query_tokens = nn.Parameter(torch.zeros(1, config.num_query_tokens, config.hidden_size))
         self.query_tokens.data.normal_(mean=0.0, std=config.initializer_range)
 
-        # BertEncoder acts as the Q-Former's core.
-        # It handles self-attention among query tokens and cross-attention with image features.
         self.bert_encoder = BertEncoder(config)
 
         self._init_weights()
 
     def _init_weights(self):
-        """
-        Initializes the weights of the Q-Former's sub-modules (e.g., linear layers, LayerNorms).
-        This follows a standard initialization strategy similar to Hugging Face's PreTrainedModel.
-        """
         for m in self.modules():
             if isinstance(m, (nn.Linear, nn.Embedding)):
                 m.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
@@ -703,40 +687,26 @@ class Qformer(nn.Module):
 
     def forward(
         self,
-        encoder_hidden_states: torch.Tensor, # This will be the image features from BiomedCLIP
+        encoder_hidden_states: torch.Tensor,
         encoder_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        Forward pass for the Q-Former.
-        Args:
-            encoder_hidden_states (torch.Tensor): Image features from the vision encoder.
-                                                  Shape: (batch_size, 1, feature_dim)
-            encoder_attention_mask (Optional[torch.Tensor]): Attention mask for image features.
-        Returns:
-            torch.Tensor: Output query embeddings after processing by the Q-Former.
-                          Shape: (batch_size, num_query_tokens, hidden_size)
-        """
         batch_size = encoder_hidden_states.shape[0]
         device = encoder_hidden_states.device
 
-        # Expand query tokens to match the batch size
         query_tokens = self.query_tokens.expand(batch_size, -1, -1)
 
-        # Create an attention mask for the query tokens (all ones as they are not padded)
         query_attention_mask = torch.ones(query_tokens.shape[:-1], dtype=torch.long, device=device)
 
-        # If encoder_attention_mask is not provided, assume all image features are valid
         if encoder_attention_mask is None:
             encoder_attention_mask = torch.ones(
                 encoder_hidden_states.shape[:-1], dtype=torch.long, device=device
             )
 
-        # Pass through the BERT encoder for self-attention on queries and cross-attention with image features
         encoder_outputs = self.bert_encoder(
-            hidden_states=query_tokens,            # Query embeddings as input to BERT encoder
-            attention_mask=query_attention_mask,   # Attention mask for query embeddings
-            encoder_hidden_states=encoder_hidden_states, # Image features for cross-attention
-            encoder_attention_mask=encoder_attention_mask, # Attention mask for image features
+            hidden_states=query_tokens,
+            attention_mask=query_attention_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
             return_dict=True,
         )
 
@@ -744,21 +714,17 @@ class Qformer(nn.Module):
         return output_query_embeddings
 
 
-# --- XrayReportGeneratorConfig Class ---
+# --- XrayReportGeneratorConfig Class (Keep as is) ---
 class XrayReportGeneratorConfig(PretrainedConfig):
-    """
-    Configuration for the XrayReportGenerator model.
-    This defines all the parameters needed to initialize an XrayReportGenerator.
-    """
     model_type = "xray_report_generator"
 
     def __init__(
         self,
-        biomedclip_model_name: str = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+        # IMPORTANT: biomedclip_model_name uses standard Hugging Face ID (no 'hf-hub:')
+        biomedclip_model_name: str = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224", # Re-added hf-hub:
         biogpt_base_model: str = "microsoft/biogpt",
         qformer_config: Optional[Dict[str, Any]] = None,
         max_seq_length: int = 256,
-        # Fine-tuned weights filenames (expected to be at the root of the HF repo)
         biomedclip_finetuned_weights: str = "biomedclip_finetuned.pth",
         biogpt_finetuned_weights: str = "biogpt_finetuned.pth",
         **kwargs
@@ -771,7 +737,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
         self.biogpt_finetuned_weights = biogpt_finetuned_weights
 
         self.qformer_config = qformer_config if qformer_config is not None else {
-            "hidden_size": 768,  # Dimension of Q-Former query tokens and its output
+            "hidden_size": 768,
             "num_hidden_layers": 6,
             "num_attention_heads": 12,
             "intermediate_size": 3072,
@@ -782,12 +748,12 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "layer_norm_eps": 1e-12,
             "add_cross_attention": True,
             "cross_attention_freq": 1,
-            "encoder_width": 512, # This MUST match the `feature_dim` from BiomedCLIPEncoder
+            "encoder_width": 512, # Based on your observation of 512-dim features
             "num_query_tokens": 32,
             "gradient_checkpointing": False,
-            "vocab_size": 30522, # Required by BertConfig, even if not fully used for input embeddings
-            "max_position_embeddings": 512, # Required by BertConfig
-            "pad_token_id": 0, # Required by BertConfig
+            "vocab_size": 30522,
+            "max_position_embeddings": 512,
+            "pad_token_id": 0,
             "position_embedding_type": "absolute"
         }
 
@@ -795,7 +761,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
 AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
-# --- XrayReportGenerator Class ---
+# --- XrayReportGenerator Class (Keep as is) ---
 class XrayReportGenerator(PreTrainedModel):
     config_class = XrayReportGeneratorConfig
     base_model_prefix = "xray_report_generator"
@@ -803,20 +769,16 @@ class XrayReportGenerator(PreTrainedModel):
     def __init__(self, config: XrayReportGeneratorConfig):
         super().__init__(config)
 
-        # Use values directly from config for consistency and to avoid redundancy
         self.biomedclip_model_name = config.biomedclip_model_name
         self.biogpt_base_model = config.biogpt_base_model
         self.max_seq_length = config.max_seq_length
-        self.repo_id = config._name_or_path # Get repo_id from config (e.g., hajar001/xray_report_generator)
+        self.repo_id = config._name_or_path
 
-        # Initialize BiomedCLIPEncoder (now uses transformers.AutoModel)
-        # Pass the model_name from config; weights_path is None as they are loaded explicitly below
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=self.biomedclip_model_name,
-            weights_path=None # Load base model, fine-tuned weights handled by XrayReportGenerator
+            weights_path=None
         )
 
-        # Load fine-tuned BiomedCLIP weights using hf_hub_download
         if config.biomedclip_finetuned_weights:
             try:
                 biomedclip_local_path = hf_hub_download(
@@ -824,27 +786,19 @@ class XrayReportGenerator(PreTrainedModel):
                     filename=config.biomedclip_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
-                # Load state_dict onto the already initialized BiomedCLIPEncoder's model (transformers model)
-                # map_location=self.device ensures weights are loaded to the correct device
                 self.biomedclip_encoder.model.load_state_dict(torch.load(biomedclip_local_path, map_location=self.device))
                 logger.info(f"XrayReportGenerator: Loaded fine-tuned BiomedCLIP weights from {biomedclip_local_path}")
             except Exception as e:
                 logger.error(f"XrayReportGenerator: Failed to load fine-tuned BiomedCLIP weights from {config.biomedclip_finetuned_weights}: {e}")
-                # Decide if this error should halt execution or allow continuation with base model
 
-        # Create BertConfig for Q-Former using parameters from XrayReportGeneratorConfig
         qformer_bert_config = BertConfig(**config.qformer_config)
 
-        # Assert that Q-Former's expected input dimension matches BiomedCLIP encoder's output dimension
         assert qformer_bert_config.encoder_width == self.biomedclip_encoder.feature_dim, \
             f"Q-Former encoder_width ({qformer_bert_config.encoder_width}) must match BiomedCLIP feature_dim ({self.biomedclip_encoder.feature_dim})"
 
-        # Initialize Qformer
         self.qformer = Qformer(qformer_bert_config)
-        # Move Q-Former to the same device as the main model
         self.qformer.to(self.device)
 
-        # Initialize tokenizer using biogpt_base_model from config
         self.tokenizer = AutoTokenizer.from_pretrained(self.biogpt_base_model)
 
         if self.tokenizer.bos_token is None:
@@ -855,19 +809,16 @@ class XrayReportGenerator(PreTrainedModel):
             self.tokenizer.add_special_tokens({'pad_token': self.tokenizer.eos_token})
             warnings.warn("Tokenizer pad_token is None, setting to eos_token.")
 
-        # Initialize BioGPT decoder
         self.biogpt_decoder = BioGptForCausalLM.from_pretrained(self.biogpt_base_model)
-        # Move BioGPT decoder to the same device as the main model
         self.biogpt_decoder.to(self.device)
 
-        if config.biogpt_finetuned_weights: # Only attempt if filename is provided in config
+        if config.biogpt_finetuned_weights:
             try:
                 biogpt_local_path = hf_hub_download(
                     repo_id=self.repo_id,
                     filename=config.biogpt_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
-                # Load state_dict onto the BioGPT decoder
                 self.biogpt_decoder.load_state_dict(torch.load(biogpt_local_path, map_location=self.device))
                 logger.info(f"XrayReportGenerator: Loaded fine-tuned BioGPT weights from {biogpt_local_path}")
             except Exception as e:
@@ -897,14 +848,8 @@ class XrayReportGenerator(PreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs
         ):
-        """
-        Forward pass for the XrayReportGenerator model.
-        Can be used for both training (with image_features, input_ids, attention_mask)
-        and inference (with image_path and/or prompt_text).
-        """
         is_training = image_features is not None and input_ids is not None and attention_mask is not None
 
-        # Handle image encoding if an image path is provided for inference
         if image_path is not None and not is_training:
             image_features = self.biomedclip_encoder.encode_image(image_path)
         elif image_features is None and not is_training and not prompt_text:
@@ -958,11 +903,10 @@ class XrayReportGenerator(PreTrainedModel):
                 "return_dict": True
             }
 
-            # Forward pass through BioGPT decoder
             outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)
             return outputs.loss
 
-        else: 
+        else:
             if query_embeddings is None:
                 raise ValueError("For inference, image features (from image_path or image_features) must be provided.")
 
@@ -970,7 +914,6 @@ class XrayReportGenerator(PreTrainedModel):
             input_attention_mask_list = [torch.ones(query_embeddings.shape[0], query_embeddings.shape[1], dtype=torch.long, device=self.device)]
 
             if prompt_text:
-                # Tokenize and embed the prompt text
                 prompt_token_ids = self.tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False).input_ids
                 prompt_token_ids = prompt_token_ids.to(self.device)
 
@@ -979,11 +922,9 @@ class XrayReportGenerator(PreTrainedModel):
                 input_embeddings_list.append(text_embeddings)
                 input_attention_mask_list.append(torch.ones(text_embeddings.shape[0], text_embeddings.shape[1], dtype=torch.long, device=self.device))
 
-            # Concatenate all input embeddings and attention masks
             input_embeddings = torch.cat(input_embeddings_list, dim=1)
             input_attention_mask = torch.cat(input_attention_mask_list, dim=1)
 
-            # Generate report using BioGPT decoder
             generated_output = self.biogpt_decoder.generate(
                 inputs_embeds=input_embeddings,
                 attention_mask=input_attention_mask,
@@ -998,7 +939,6 @@ class XrayReportGenerator(PreTrainedModel):
                 **kwargs
             )
 
-            # Decode the generated tokens into a readable report
             generated_report = self.tokenizer.decode(generated_output[0], skip_special_tokens=True)
 
             return generated_report
