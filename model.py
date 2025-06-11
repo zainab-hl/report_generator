@@ -601,13 +601,14 @@ class BertEncoder(nn.Module):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
+# --- BiomedCLIPEncoder Class (Mimicking local working code) ---
 class BiomedCLIPEncoder(nn.Module):
     def __init__(self, model_name: str, weights_path: Optional[str] = None):
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            self.model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
+            self.model, _, self.preprocess_fn = open_clip.create_model_from_pretrained(model_name)
 
             self.model.to(self.device)
 
@@ -615,15 +616,19 @@ class BiomedCLIPEncoder(nn.Module):
                 self.model.load_state_dict(
                     torch.load(weights_path, map_location=self.device, weights_only=True)
                 )
+                # logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
+                print(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
+                # logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
-            self.model.eval() # Set to evaluation mode
+            self.model.eval() 
 
             with torch.no_grad():
                 dummy_image = Image.new('RGB', (224, 224), color='red')
                 dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
                 dummy_features = self.model.encode_image(dummy_input)
                 self.feature_dim = dummy_features.shape[-1]
+                print(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
 
         except Exception as e:
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
@@ -636,7 +641,6 @@ class BiomedCLIPEncoder(nn.Module):
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            # Use self.model.encode_image directly as in your working snippet
             features = self.model.encode_image(processed_image)
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
