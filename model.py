@@ -758,8 +758,6 @@ class XrayReportGenerator(PreTrainedModel):
         self.max_seq_length = config.max_seq_length
         self.repo_id = config._name_or_path # Get repo_id from config (e.g., hajar001/xray_report_generator)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         # Initialize BiomedCLIPEncoder
         # Pass the model_name and weights_path from the config
         self.biomedclip_encoder = BiomedCLIPEncoder(
