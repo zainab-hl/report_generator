@@ -7,12 +7,18 @@ import warnings
 import os
 from typing import Optional, Tuple, Dict, Any
 
-from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig, AutoTokenizer
-from transformers.utils import logging
-from transformers.activations import ACT2FN
-from transformers import PreTrainedModel 
-from huggingface_hub import hf_hub_download 
-from transformers import AutoTokenizer, BertConfig, AutoProcessor, AutoModel # Import AutoProcessor and AutoModel
+from transformers import (
+    PretrainedConfig,
+    AutoConfig,
+    PreTrainedModel,
+    AutoTokenizer,
+    BertConfig,
+    AutoProcessor,
+    AutoModel,
+    BioGptForCausalLM
+)
+from transformers.models.bert.modeling_bert import BertEncoder
+from huggingface_hub import hf_hub_download
 
 import open_clip
 from PIL import Image
