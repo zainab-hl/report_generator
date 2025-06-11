@@ -12,6 +12,7 @@ from transformers.utils import logging
 from transformers.activations import ACT2FN
 from transformers import PreTrainedModel 
 from huggingface_hub import hf_hub_download 
+from transformers import AutoTokenizer, BertConfig, AutoProcessor, AutoModel # Import AutoProcessor and AutoModel
 
 import open_clip
 from PIL import Image
@@ -661,42 +662,49 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            # First, create the base model with its default pretrained weights
-            # For "hf-hub:..." models, pretrained=True should load the model from Hugging Face.
-            self.model, _, self.preprocess = open_clip.create_model_and_transforms(
-                model_name, pretrained=model_name, device=None 
-            )
-            logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully.")
+            self.processor = AutoProcessor.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name).vision_model # Access only the vision_model part
 
-            # If a specific weights_path is provided, load the state dict from there
+            logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully using transformers.")
+
             if weights_path and os.path.exists(weights_path):
-                # Ensure the weights are loaded to the correct device
                 self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
-                logger.info(f"BiomedCLIPEncoder: Loaded fine-tuned weights from {weights_path}")
+                logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
-                logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using default loaded model.")
+                logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
         except Exception as e:
-            raise ImportError(f"Failed to load open_clip model. Ensure model_name '{model_name}' is correct, and fine-tuned weights path '{weights_path}' (if provided) is accessible, and 'open_clip_torch' is installed. Error: {e}")
+            raise ImportError(f"Failed to load BiomedCLIP model using transformers. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
 
-        self.feature_dim = self.model.visual.output_dim
+        self.model.to(self.device) 
+        self.model.eval() 
 
-        # Move the model to the defined device
-        self.model.to(self.device)
-        self.model.eval() # Set to evaluation mode
+        with torch.no_grad():
+            # Create a dummy image input based on expected input size (e.g., 224x224 for ViT)
+            dummy_image = Image.new('RGB', (224, 224), color='red')
+            dummy_pixel_values = self.processor(images=dummy_image, return_tensors="pt").pixel_values
+            dummy_processed_image = dummy_pixel_values.to(self.device)
+            dummy_output = self.model(dummy_processed_image)
+            dummy_features = dummy_output.pooler_output
+            self.feature_dim = dummy_features.shape[-1] # Get the actual output dimension
+            logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from pooler_output.")
 
     def encode_image(self, image_path: str) -> torch.Tensor:
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found at: {image_path}")
 
         image = Image.open(image_path).convert("RGB")
-        processed_image = self.preprocess(image).unsqueeze(0).to(self.device)
+        pixel_values = self.processor(images=image, return_tensors="pt").pixel_values
+        processed_image = pixel_values.to(self.device)
+
         with torch.no_grad():
-            features = self.model.encode_image(processed_image)
+            output = self.model(processed_image)
+            features = output.pooler_output 
+
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
 
-# --- XrayReportGeneratorConfig Class ---
+
 class XrayReportGeneratorConfig(PretrainedConfig):
     """
     Configuration for the XrayReportGenerator model.
@@ -706,12 +714,13 @@ class XrayReportGeneratorConfig(PretrainedConfig):
 
     def __init__(
         self,
+        # IMPORTANT: Change biomedclip_model_name to standard HF ID, remove 'hf-hub:'
         biomedclip_model_name: str = "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
         biogpt_base_model: str = "microsoft/biogpt",
         qformer_config: Optional[Dict[str, Any]] = None,
         max_seq_length: int = 256,
-        biomedclip_finetuned_weights: str = "biomedclip_finetuned.pth", # Removed leading '/' for filename only
-        biogpt_finetuned_weights: str = "biogpt_finetuned.pth",       # Removed leading '/' for filename only
+        biomedclip_finetuned_weights: str = "biomedclip_finetuned.pth",
+        biogpt_finetuned_weights: str = "biogpt_finetuned.pth",
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -758,14 +767,10 @@ class XrayReportGenerator(PreTrainedModel):
         self.max_seq_length = config.max_seq_length
         self.repo_id = config._name_or_path # Get repo_id from config (e.g., hajar001/xray_report_generator)
 
-        # Initialize BiomedCLIPEncoder
-        # Pass the model_name and weights_path from the config
+        # Initialize BiomedCLIPEncoder (now uses transformers.AutoModel)
         self.biomedclip_encoder = BiomedCLIPEncoder(
-            model_name=self.biomedclip_model_name,
-            # We don't pass weights_path here if we're loading them separately below.
-            # BiomedCLIPEncoder now creates the base model, and XrayReportGenerator loads finetuned weights.
-            # So, we pass it None here, and BiomedCLIPEncoder should load its *base* model.
-            weights_path=None # BiomedCLIPEncoder should load its base model now
+            model_name=self.biomedclip_model_name, # This is now 'microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224'
+            weights_path=None # Still load finetuned weights in XrayReportGenerator below
         )
 
         # Load fine-tuned BiomedCLIP weights using hf_hub_download
@@ -773,15 +778,14 @@ class XrayReportGenerator(PreTrainedModel):
             try:
                 biomedclip_local_path = hf_hub_download(
                     repo_id=self.repo_id,
-                    filename=config.biomedclip_finetuned_weights, # Use filename from config
+                    filename=config.biomedclip_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
-                # Load state_dict onto the already initialized BiomedCLIPEncoder's model
+                # Load state_dict onto the already initialized BiomedCLIPEncoder's model (which is a transformers model)
                 self.biomedclip_encoder.model.load_state_dict(torch.load(biomedclip_local_path, map_location=self.device))
                 logger.info(f"XrayReportGenerator: Loaded fine-tuned BiomedCLIP weights from {biomedclip_local_path}")
             except Exception as e:
                 logger.error(f"XrayReportGenerator: Failed to load fine-tuned BiomedCLIP weights from {config.biomedclip_finetuned_weights}: {e}")
-                # Consider if this should be a critical error or allow continuation with base model
 
 
         qformer_bert_config = BertConfig(**config.qformer_config)
@@ -790,6 +794,7 @@ class XrayReportGenerator(PreTrainedModel):
             "Q-Former encoder_width must match BiomedCLIP feature_dim"
 
         # Initialize Qformer
+        # Ensure Qformer is correctly implemented to take BERT config and process image features
         self.qformer = Qformer(qformer_bert_config)
         self.qformer.to(self.device)
 
@@ -809,11 +814,11 @@ class XrayReportGenerator(PreTrainedModel):
         self.biogpt_decoder.to(self.device)
 
         # Load fine-tuned BioGPT weights
-        if config.biogpt_finetuned_weights: # Added back check based on config, safe if default is always a filename
+        if config.biogpt_finetuned_weights:
             try:
                 biogpt_local_path = hf_hub_download(
                     repo_id=self.repo_id,
-                    filename=config.biogpt_finetuned_weights, # Use filename from config
+                    filename=config.biogpt_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
                 self.biogpt_decoder.load_state_dict(torch.load(biogpt_local_path, map_location=self.device))
