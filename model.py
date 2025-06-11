@@ -14,6 +14,7 @@ import os
 from typing import Optional, Tuple, Dict, Any
 
 
+
 from transformers import (
     PretrainedConfig,
     AutoConfig,
@@ -31,6 +32,10 @@ from huggingface_hub import hf_hub_download
 
 import open_clip
 from PIL import Image
+import logging
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class ModelOutput:
     """A simple class to mimic Hugging Face model outputs for Q-Former sub-components."""
@@ -541,6 +546,9 @@ class BertEncoder(nn.Module):
 
             if getattr(self.config, "gradient_checkpointing", False) and self.training:
                 if use_cache:
+                    logger.warn(
+                        "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+                    )
                     use_cache = False
 
                 def create_custom_forward(module):
@@ -601,34 +609,41 @@ class BertEncoder(nn.Module):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
-# --- BiomedCLIPEncoder Class (Mimicking local working code) ---
 class BiomedCLIPEncoder(nn.Module):
     def __init__(self, model_name: str, weights_path: Optional[str] = None):
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            self.model, _, self.preprocess_fn = open_clip.create_model_from_pretrained(model_name)
+            # Mimic the working local code: use open_clip.create_model_and_transforms directly.
+            # Do NOT pass 'device' argument here, let open_clip handle its internal default device placement.
+            self.model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
 
+            # After open_clip has created the model (likely on CPU by default),
+            # explicitly move the *entire* model to our target device.
             self.model.to(self.device)
 
+            # Load fine-tuned weights if provided.
+            # Use map_location=self.device to ensure weights are loaded to the correct device.
+            # Include weights_only=True as seen in your earlier local encoder.py snippet's torch.load.
             if weights_path and os.path.exists(weights_path):
                 self.model.load_state_dict(
                     torch.load(weights_path, map_location=self.device, weights_only=True)
                 )
-                # logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
+                logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
-                print(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
-                # logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
+                logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
-            self.model.eval() 
+            self.model.eval() # Set to evaluation mode
 
+            # Dynamically determine feature_dim using a dummy input and the model's encode_image method.
             with torch.no_grad():
                 dummy_image = Image.new('RGB', (224, 224), color='red')
                 dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
+                # Use self.model.encode_image directly as in your working snippet
                 dummy_features = self.model.encode_image(dummy_input)
                 self.feature_dim = dummy_features.shape[-1]
-                print(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
+                logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
 
         except Exception as e:
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
@@ -641,6 +656,7 @@ class BiomedCLIPEncoder(nn.Module):
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
+            # Use self.model.encode_image directly as in your working snippet
             features = self.model.encode_image(processed_image)
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
@@ -770,10 +786,13 @@ class XrayReportGenerator(PreTrainedModel):
                     filename=config.biomedclip_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
+                # Load state_dict onto the BiomedCLIPEncoder's model
                 self.biomedclip_encoder.model.load_state_dict(
                     torch.load(biomedclip_local_path, map_location=self.device)
                 )
+                logger.info(f"XrayReportGenerator: Loaded fine-tuned BiomedCLIP weights from {biomedclip_local_path}")
             except Exception as e:
+                logger.error(f"XrayReportGenerator: Failed to load fine-tuned BiomedCLIP weights from {config.biomedclip_finetuned_weights}: {e}")
 
         qformer_bert_config = BertConfig(**config.qformer_config)
 
@@ -804,7 +823,9 @@ class XrayReportGenerator(PreTrainedModel):
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
                 self.biogpt_decoder.load_state_dict(torch.load(biogpt_local_path, map_location=self.device))
+                logger.info(f"XrayReportGenerator: Loaded fine-tuned BioGPT weights from {biogpt_local_path}")
             except Exception as e:
+                logger.error(f"XrayReportGenerator: Failed to load fine-tuned BioGPT weights from {config.biogpt_finetuned_weights}: {e}")
 
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
 
