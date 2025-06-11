@@ -1,3 +1,8 @@
+# At the absolute top of model.py, even before other imports
+print("---DEBUG: This specific model.py is now running! (Path:", __file__, ")---")
+import sys
+print("---DEBUG: sys.path:", sys.path)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
