@@ -609,8 +609,8 @@ class BiomedCLIPEncoder(nn.Module):
 
         try:
             self.processor = AutoProcessor.from_pretrained(model_name)
-            self.model = AutoModel.from_pretrained(model_name).vision_model
-
+            full_model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+            self.model = full_model.vision_model
             logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully using transformers.")
 
             if weights_path and os.path.exists(weights_path):
