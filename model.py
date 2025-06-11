@@ -600,44 +600,37 @@ class BertEncoder(nn.Module):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
-# --- BiomedCLIPEncoder Class ---
 class BiomedCLIPEncoder(nn.Module):
     def __init__(self, model_name: str, weights_path: Optional[str] = None):
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            full_open_clip_model, preprocess_fn = open_clip.create_model_from_pretrained(model_name)
+            full_open_clip_model, preprocess_fn = open_clip.create_model_from_pretrained(
+                model_name,
+                device=self.device  
+            )
 
-            # In open_clip models, the vision encoder is typically accessed via the '.visual' attribute
             self.model = full_open_clip_model.visual
-
             self.preprocess_fn = preprocess_fn
 
             logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully using open_clip.")
 
             if weights_path and os.path.exists(weights_path):
-                
                 self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
                 logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
                 logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
         except Exception as e:
-            # Rephrase the error message to reflect open_clip loading
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
 
-        # Move model to device and set to eval mode before dummy pass
-        self.model.to(self.device)
-        self.model.eval()
+        self.model.eval() 
+        
 
         with torch.no_grad():
-            # Create a dummy image input to determine the actual feature_dim
             dummy_image = Image.new('RGB', (224, 224), color='red')
-            # Use the open_clip preprocess function, and add a batch dimension
             dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
-
-            # open_clip's visual models directly output features, not a 'pooler_output' object
             dummy_output = self.model(dummy_input)
             self.feature_dim = dummy_output.shape[-1]
             logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from open_clip visual model output.")
