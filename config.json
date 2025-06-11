@@ -7,7 +7,7 @@
     "AutoConfig": "model.XrayReportGeneratorConfig",
     "AutoModel": "model.XrayReportGenerator"
   },
-  "biomedclip_model_name": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+  "biomedclip_model_name": "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
   "biogpt_base_model": "microsoft/biogpt",
   "max_seq_length": 256,
   "biomedclip_finetuned_weights": "biomedclip_finetuned.pth",
