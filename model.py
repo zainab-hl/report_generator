@@ -741,7 +741,6 @@ class XrayReportGeneratorConfig(PretrainedConfig):
 
     def __init__(
         self,
-        # IMPORTANT: biomedclip_model_name uses standard Hugging Face ID (no 'hf-hub:')
         biomedclip_model_name: str = "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
         biogpt_base_model: str = "microsoft/biogpt",
         qformer_config: Optional[Dict[str, Any]] = None,
