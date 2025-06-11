@@ -7,14 +7,12 @@ import warnings
 import os
 from typing import Optional, Tuple, Dict, Any
 
-# Standard Hugging Face and external library imports
 from transformers import BioGptForCausalLM, BioGptTokenizer, AutoModel, AutoConfig, PretrainedConfig, AutoTokenizer
 from transformers.utils import logging
 from transformers.activations import ACT2FN
-from transformers import PreTrainedModel # Import PreTrainedModel
-from huggingface_hub import hf_hub_download # Import hf_hub_download for loading individual weights
+from transformers import PreTrainedModel 
+from huggingface_hub import hf_hub_download 
 
-# External library for CLIP models (ensure it's pip installable by user: pip install open_clip_torch)
 import open_clip
 from PIL import Image
 
@@ -659,12 +657,11 @@ class Qformer(nn.Module):
 
 # --- BiomedCLIPEncoder Class ---
 class BiomedCLIPEncoder(nn.Module):
-    def __init__(self, model_name, weights_path): # Removed img_size from here
+    def __init__(self, model_name, weights_path): 
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Define device early
 
         try:
-            # Passed device=None to open_clip.create_model_and_transforms to prevent immediate .to() on meta tensor
             model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=weights_path if weights_path else True, device=None)
         except Exception as e:
             raise ImportError(f"Failed to load open_clip model. Ensure model_name '{model_name}' and weights_path '{weights_path}' are correct, and 'open_clip_torch' is installed. Error: {e}")
@@ -673,8 +670,7 @@ class BiomedCLIPEncoder(nn.Module):
         self.preprocess = preprocess
         self.feature_dim = model.visual.output_dim
         
-        # Move the model to the desired device *after* it's been created (and potentially had weights loaded into it by open_clip, or before our custom load).
-        self.model.to(self.device) # This line is now safe
+        self.model.to(self.device) 
 
 
     def encode_image(self, image_path: str) -> torch.Tensor:
@@ -699,11 +695,11 @@ class XrayReportGeneratorConfig(PretrainedConfig):
         self,
         biomedclip_model_name: str = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
         biogpt_base_model: str = "microsoft/biogpt",
-        qformer_config: Optional[Dict[str, Any]] = None, # Dict to initialize BertConfig
+        qformer_config: Optional[Dict[str, Any]] = None, 
         max_seq_length: int = 256,
-        biomedclip_finetuned_weights: str = "biomedclip_finetuned.pth", # Name of fine-tuned weights file on HF
-        biogpt_finetuned_weights: str = "biogpt_finetuned.pth", # Name of fine-tuned weights file on HF
-        **kwargs # Catch-all for additional config parameters
+        biomedclip_finetuned_weights: str = "biomedclip_finetuned.pth", 
+        biogpt_finetuned_weights: str = "biogpt_finetuned.pth", 
+        **kwargs 
     ):
         super().__init__(**kwargs)
         self.biomedclip_model_name = biomedclip_model_name
@@ -733,7 +729,6 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "position_embedding_type": "absolute"
         }
 
-# Register XrayReportGeneratorConfig after its definition using positional arguments
 AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
@@ -751,7 +746,6 @@ class XrayReportGenerator(PreTrainedModel):
         self.repo_id = config._name_or_path # Get repo_id from config (e.g., hajar001/xray_report_generator)
 
         # Initialize BiomedCLIPEncoder
-        # Pass weights_path as None initially, then load fine-tuned weights explicitly
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=self.biomedclip_model_name,
             weights_path=None # Load base model, then fine-tuned weights

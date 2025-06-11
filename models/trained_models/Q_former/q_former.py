@@ -7,13 +7,6 @@ import warnings
 from typing import Optional, Tuple, Dict, Any
 from transformers.activations import ACT2FN
 
-
-# class MockLogger:
-#     """A minimal logger mock to prevent errors from missing 'logging' module."""
-#     def warn(self, message):
-#         print(f"WARNING: {message}")
-# logger = MockLogger()
-
 class ModelOutput:
     def __init__(self, **kwargs):
         self.kwargs = kwargs

@@ -148,7 +148,7 @@ class XrayReportGenerator(nn.Module):
                 max_new_tokens=max_new_tokens, 
                 num_beams=1, 
                 do_sample=True, 
-                temperature=1.0, 
+                temperature=0.5, 
                 top_k=50, 
                 top_p=0.9, 
                 eos_token_id=self.eos_token_id,

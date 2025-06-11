@@ -1,6 +1,0 @@
-{
-    "model_config": {
-        "input_image_size": 59536,
-        "image_features_dim": 512
-    }
-}
