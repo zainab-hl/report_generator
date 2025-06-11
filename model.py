@@ -601,34 +601,6 @@ class BertEncoder(nn.Module):
             cross_attentions=all_cross_attentions,
         )
 
-import torch
-import torch.nn as nn
-from PIL import Image
-import os
-import warnings
-import logging
-from typing import Optional, Dict, Any
-
-from transformers import (
-    PretrainedConfig,
-    AutoConfig,
-    PreTrainedModel,
-    AutoTokenizer,
-    BertConfig,
-    BertEncoder, # Added BertEncoder for Qformer
-    AutoProcessor, # Added AutoProcessor for BiomedCLIPEncoder
-    AutoModel,     # Added AutoModel for BiomedCLIPEncoder
-    BioGptForCausalLM # Ensure BioGptForCausalLM is imported
-)
-from huggingface_hub import hf_hub_download
-
-# Set up logging
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    # Add a handler only if one doesn't already exist
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
 # --- BiomedCLIPEncoder Class ---
 class BiomedCLIPEncoder(nn.Module):
     def __init__(self, model_name: str, weights_path: Optional[str] = None):
@@ -637,7 +609,6 @@ class BiomedCLIPEncoder(nn.Module):
 
         try:
             self.processor = AutoProcessor.from_pretrained(model_name)
-            # Access only the vision_model part as it's the encoder
             self.model = AutoModel.from_pretrained(model_name).vision_model
 
             logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully using transformers.")
@@ -656,15 +627,12 @@ class BiomedCLIPEncoder(nn.Module):
         self.model.eval()
 
         with torch.no_grad():
-            # Create a dummy image input to determine the actual feature_dim
-            # Assumes standard image input size for ViT models like 224x224
             dummy_image = Image.new('RGB', (224, 224), color='red')
             dummy_pixel_values = self.processor(images=dummy_image, return_tensors="pt").pixel_values
             dummy_processed_image = dummy_pixel_values.to(self.device)
             dummy_output = self.model(dummy_processed_image)
-            # Assuming pooler_output gives the desired feature vector
             dummy_features = dummy_output.pooler_output
-            self.feature_dim = dummy_features.shape[-1] # Get the actual output dimension
+            self.feature_dim = dummy_features.shape[-1] 
             logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from pooler_output.")
 
     def encode_image(self, image_path: str) -> torch.Tensor:
@@ -867,7 +835,6 @@ class XrayReportGenerator(PreTrainedModel):
         # Initialize tokenizer using biogpt_base_model from config
         self.tokenizer = AutoTokenizer.from_pretrained(self.biogpt_base_model)
 
-        # Add special tokens if they are missing for BioGPT
         if self.tokenizer.bos_token is None:
             self.tokenizer.add_special_tokens({'bos_token': '<s>'})
         if self.tokenizer.eos_token is None:
@@ -881,7 +848,6 @@ class XrayReportGenerator(PreTrainedModel):
         # Move BioGPT decoder to the same device as the main model
         self.biogpt_decoder.to(self.device)
 
-        # Load fine-tuned BioGPT weights
         if config.biogpt_finetuned_weights: # Only attempt if filename is provided in config
             try:
                 biogpt_local_path = hf_hub_download(
@@ -895,10 +861,8 @@ class XrayReportGenerator(PreTrainedModel):
             except Exception as e:
                 logger.error(f"XrayReportGenerator: Failed to load fine-tuned BioGPT weights from {config.biogpt_finetuned_weights}: {e}")
 
-        # Determine BioGPT hidden size for projection layer
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
 
-        # Create a projection layer if Q-Former output dimension doesn't match BioGPT input dimension
         if qformer_bert_config.hidden_size != biogpt_hidden_size:
             self.qformer_output_to_biogpt_input_projection = nn.Linear(
                 qformer_bert_config.hidden_size, biogpt_hidden_size
@@ -936,48 +900,36 @@ class XrayReportGenerator(PreTrainedModel):
 
         query_embeddings = None
 
-        # Process image features through Q-Former if available
         if image_features is not None:
-            # Ensure image_features is 2D (batch_size, feature_dim) if it's 1D
             if image_features.ndim == 1:
                 image_features = image_features.unsqueeze(0)
 
-            # Move image features to the model's device
             image_features = image_features.to(self.device)
 
-            # Unsqueeze image_features to (batch_size, 1, feature_dim) for Q-Former's encoder_hidden_states
             image_features_for_qformer = image_features.unsqueeze(1)
 
-            # Pass through Q-Former
             query_embeddings = self.qformer(encoder_hidden_states=image_features_for_qformer)
 
-            # Apply projection if dimensions don't match BioGPT input
             if self.qformer_output_to_biogpt_input_projection:
                 query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
 
-            # Ensure query_embeddings are on the correct device
             query_embeddings = query_embeddings.to(self.device)
 
         if is_training:
             if query_embeddings is None:
                 raise ValueError("image_features (and thus query_embeddings) must be provided for training.")
 
-            # Get embeddings for the report text from BioGPT's input embeddings layer
             report_embeddings = self.biogpt_decoder.get_input_embeddings()(input_ids)
-            # Concatenate query embeddings (from image) with report text embeddings
             decoder_input_embeddings = torch.cat([query_embeddings, report_embeddings], dim=1)
 
-            # Create attention mask for query embeddings
             query_attention_mask = torch.ones(
                 query_embeddings.shape[0],
                 query_embeddings.shape[1],
                 dtype=torch.long,
                 device=self.device
             )
-            # Concatenate attention masks for full decoder input
             decoder_attention_mask = torch.cat([query_attention_mask, attention_mask], dim=1)
 
-            # Prepare labels, ignoring query tokens during loss calculation (-100 index)
             labels = input_ids.clone()
             ignored_labels_for_query = torch.full(
                 (query_embeddings.shape[0], query_embeddings.shape[1]),
@@ -987,7 +939,6 @@ class XrayReportGenerator(PreTrainedModel):
             )
             decoder_labels = torch.cat([ignored_labels_for_query, labels], dim=1)
 
-            # Prepare arguments for BioGPT decoder
             biogpt_decoder_kwargs = {
                 "inputs_embeds": decoder_input_embeddings,
                 "attention_mask": decoder_attention_mask,
@@ -999,7 +950,7 @@ class XrayReportGenerator(PreTrainedModel):
             outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)
             return outputs.loss
 
-        else: # Inference path
+        else: 
             if query_embeddings is None:
                 raise ValueError("For inference, image features (from image_path or image_features) must be provided.")
 
