@@ -664,7 +664,7 @@ class BiomedCLIPEncoder(nn.Module):
             # First, create the base model with its default pretrained weights
             # For "hf-hub:..." models, pretrained=True should load the model from Hugging Face.
             self.model, _, self.preprocess = open_clip.create_model_and_transforms(
-                model_name, pretrained=True, device=None # device=None as it's moved later
+                model_name, pretrained=model_name, device=None # device=None as it's moved later
             )
             logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully.")
 
