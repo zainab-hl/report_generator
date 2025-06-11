@@ -23,10 +23,6 @@ from huggingface_hub import hf_hub_download
 import open_clip
 from PIL import Image
 
-logger = logging.get_logger(__name__)
-
-# --- Helper Classes for Q-Former ---
-
 class ModelOutput:
     """A simple class to mimic Hugging Face model outputs for Q-Former sub-components."""
     def __init__(self, **kwargs):
