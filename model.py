@@ -611,63 +611,38 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            open_clip_hf_repo_id_only = model_name.replace("hf-hub:", "")
+            # Mimic the working local code: use open_clip.create_model_and_transforms directly.
+            # Do NOT pass 'device' argument here, let open_clip handle its internal default device placement.
+            self.model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
 
-            # Step 1: Download the open_clip_config.json
-            config_file_path = hf_hub_download(
-                repo_id=open_clip_hf_repo_id_only,
-                filename="open_clip_config.json",
-                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-            )
-            with open(config_file_path, 'r') as f:
-                oc_config = json.load(f)
+            # After open_clip has created the model (likely on CPU by default),
+            # explicitly move the *entire* model to our target device.
+            self.model.to(self.device)
 
-            open_clip_base_weights_path = hf_hub_download(
-                repo_id=open_clip_hf_repo_id_only,
-                filename="open_clip_pytorch_model.bin",
-                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-            )
-
-            full_open_clip_model = build_model_from_openai_config(
-                oc_config['model_cfg'],
-                weights_path=None, 
-                device='cpu' # Explicitly create on CPU to ensure data is present
-            )
-
-            # Step 4: Manually load the downloaded state_dict onto the CPU-instantiated model
-            state_dict = torch.load(open_clip_base_weights_path, map_location='cpu')
-            full_open_clip_model.load_state_dict(state_dict)
-
-            # Step 5: Build the preprocessing function from the config
-            self.preprocess_fn = build_transform_from_cfg(oc_config['preprocess_cfg'])
-
-            # Step 6: Move the fully loaded model to the target device (CPU or CUDA)
-            full_open_clip_model.to(self.device)
-
-            # Ensure the model is in evaluation mode
-            full_open_clip_model.eval()
-
-            # Access the visual encoder part of the loaded open_clip model
-            self.model = full_open_clip_model.visual
-            logger.info(f"BiomedCLIPEncoder: Model '{model_name}' loaded manually via open_clip on {self.device}.")
-
-            # Step 7: Load custom fine-tuned weights if provided
+            # Load fine-tuned weights if provided.
+            # Use map_location=self.device to ensure weights are loaded to the correct device.
+            # Include weights_only=True as seen in your earlier local encoder.py snippet's torch.load.
             if weights_path and os.path.exists(weights_path):
-                self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
+                self.model.load_state_dict(
+                    torch.load(weights_path, map_location=self.device, weights_only=True)
+                )
                 logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
                 logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
+            self.model.eval() # Set to evaluation mode
+
+            # Dynamically determine feature_dim using a dummy input and the model's encode_image method.
+            with torch.no_grad():
+                dummy_image = Image.new('RGB', (224, 224), color='red')
+                dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
+                # Use self.model.encode_image directly as in your working snippet
+                dummy_features = self.model.encode_image(dummy_input)
+                self.feature_dim = dummy_features.shape[-1]
+                logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
+
         except Exception as e:
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
-
-        # Determine feature_dim from a dummy forward pass
-        with torch.no_grad():
-            dummy_image = Image.new('RGB', (224, 224), color='red')
-            dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
-            dummy_output = self.model(dummy_input)
-            self.feature_dim = dummy_output.shape[-1]
-            logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from open_clip visual model output.")
 
     def encode_image(self, image_path: str) -> torch.Tensor:
         if not os.path.exists(image_path):
@@ -677,11 +652,13 @@ class BiomedCLIPEncoder(nn.Module):
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            features = self.model(processed_image)
+            # Use self.model.encode_image directly as in your working snippet
+            features = self.model.encode_image(processed_image)
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
 
 
+# --- Qformer Class (Retained from previous working version) ---
 class Qformer(nn.Module):
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -733,7 +710,7 @@ class Qformer(nn.Module):
         return output_query_embeddings
 
 
-# --- XrayReportGeneratorConfig Class (Keep as is) ---
+# --- XrayReportGeneratorConfig Class (Retained from previous working version) ---
 class XrayReportGeneratorConfig(PretrainedConfig):
     model_type = "xray_report_generator"
 
@@ -779,7 +756,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
 AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
-# --- XrayReportGenerator Class (Keep as is) ---
+# --- XrayReportGenerator Class (Retained from previous working version) ---
 class XrayReportGenerator(PreTrainedModel):
     config_class = XrayReportGeneratorConfig
     base_model_prefix = "xray_report_generator"
@@ -794,9 +771,10 @@ class XrayReportGenerator(PreTrainedModel):
 
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=self.biomedclip_model_name,
-            weights_path=None
+            weights_path=None # Assume fine-tuned weights handled by XrayReportGenerator
         )
 
+        # Load fine-tuned BiomedCLIP weights (if path exists in config and file is found)
         if config.biomedclip_finetuned_weights:
             try:
                 biomedclip_local_path = hf_hub_download(
@@ -804,7 +782,10 @@ class XrayReportGenerator(PreTrainedModel):
                     filename=config.biomedclip_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
-                self.biomedclip_encoder.model.load_state_dict(torch.load(biomedclip_local_path, map_location=self.device))
+                # Load state_dict onto the BiomedCLIPEncoder's model
+                self.biomedclip_encoder.model.load_state_dict(
+                    torch.load(biomedclip_local_path, map_location=self.device)
+                )
                 logger.info(f"XrayReportGenerator: Loaded fine-tuned BiomedCLIP weights from {biomedclip_local_path}")
             except Exception as e:
                 logger.error(f"XrayReportGenerator: Failed to load fine-tuned BiomedCLIP weights from {config.biomedclip_finetuned_weights}: {e}")
