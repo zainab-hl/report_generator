@@ -446,9 +446,8 @@ class BertLayer(nn.Module):
                 output_attentions=output_attentions,
             )
             cross_attention_output_from_layer = cross_attention_outputs[0]
-            outputs = outputs + cross_attention_outputs[1:] # Add cross-attention probs if output_attentions
+            outputs = outputs + cross_attention_outputs[1:] 
 
-            # Apply the output layer for cross-attention
             layer_output = self.crossattention_output(cross_attention_output_from_layer, attention_output)
 
         else:
@@ -459,12 +458,11 @@ class BertLayer(nn.Module):
                 attention_output,
             )
         
-        # Apply the final feed-forward (intermediate and output) after potentially cross-attention
         layer_output = self.feed_forward_chunk(layer_output)
 
 
         outputs = (layer_output,) + outputs
-        outputs = outputs + (present_key_value,) # Include present_key_value from self-attention
+        outputs = outputs + (present_key_value,) 
 
         return outputs
 
@@ -616,17 +614,11 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            # Mimic the working local code: use open_clip.create_model_and_transforms directly.
-            # Do NOT pass 'device' argument here, let open_clip handle its internal default device placement.
+           
             self.model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
 
-            # After open_clip has created the model (likely on CPU by default),
-            # explicitly move the *entire* model to our target device.
             self.model.to(self.device)
 
-            # Load fine-tuned weights if provided.
-            # Use map_location=self.device to ensure weights are loaded to the correct device.
-            # Include weights_only=True as seen in your earlier local encoder.py snippet's torch.load.
             if weights_path and os.path.exists(weights_path):
                 self.model.load_state_dict(
                     torch.load(weights_path, map_location=self.device, weights_only=True)
@@ -635,13 +627,11 @@ class BiomedCLIPEncoder(nn.Module):
             elif weights_path:
                 logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
-            self.model.eval() # Set to evaluation mode
+            self.model.eval() 
 
-            # Dynamically determine feature_dim using a dummy input and the model's encode_image method.
             with torch.no_grad():
                 dummy_image = Image.new('RGB', (224, 224), color='red')
                 dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
-                # Use self.model.encode_image directly as in your working snippet
                 dummy_features = self.model.encode_image(dummy_input)
                 self.feature_dim = dummy_features.shape[-1]
                 logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
@@ -657,7 +647,6 @@ class BiomedCLIPEncoder(nn.Module):
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            # Use self.model.encode_image directly as in your working snippet
             features = self.model.encode_image(processed_image)
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
@@ -757,7 +746,6 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "position_embedding_type": "absolute"
         }
 
-# Register the config for AutoConfig to find it
 AutoConfig.register("xray_report_generator", XrayReportGeneratorConfig)
 
 
@@ -776,10 +764,9 @@ class XrayReportGenerator(PreTrainedModel):
 
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=self.biomedclip_model_name,
-            weights_path=None # Assume fine-tuned weights handled by XrayReportGenerator
+            weights_path=None 
         )
 
-        # Load fine-tuned BiomedCLIP weights (if path exists in config and file is found)
         if config.biomedclip_finetuned_weights:
             try:
                 biomedclip_local_path = hf_hub_download(
@@ -787,7 +774,6 @@ class XrayReportGenerator(PreTrainedModel):
                     filename=config.biomedclip_finetuned_weights,
                     cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
                 )
-                # Load state_dict onto the BiomedCLIPEncoder's model
                 self.biomedclip_encoder.model.load_state_dict(
                     torch.load(biomedclip_local_path, map_location=self.device)
                 )

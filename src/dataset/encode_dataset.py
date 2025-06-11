@@ -24,7 +24,6 @@ except ImportError as e:
     print("Please ensure 'encoder.py' and 'configs/constants.py' are correctly located within 'PROJECT_PATH' and the necessary dependencies are installed.")
     sys.exit(1)
 
-# Ensure output directory exists
 os.makedirs(OUTPUT_DATASET_PATH, exist_ok=True)
 print(f"Output directory '{OUTPUT_DATASET_PATH}' ensured.")
 
