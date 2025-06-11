@@ -606,15 +606,39 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            full_open_clip_model, preprocess_fn = open_clip.create_model_from_pretrained(
-                model_name,
-                device=self.device  
+            open_clip_hf_repo_id_only = model_name.replace("hf-hub:", "")
+
+            config_file_path = hf_hub_download(
+                repo_id=open_clip_hf_repo_id_only,
+                filename="open_clip_config.json",
+                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+            )
+            with open(config_file_path, 'r') as f:
+                oc_config = json.load(f)
+
+            model_architecture_name = oc_config['model_cfg']['vision_cfg']['timm_model_name']
+            text_model_architecture_name = oc_config['model_cfg']['text_cfg']['hf_model_name']
+
+            full_open_clip_model, self.preprocess_fn = open_clip.create_model_and_transforms(
+                model_architecture_name,
+                pretrained=None,
+                device='cpu'
             )
 
-            self.model = full_open_clip_model.visual
-            self.preprocess_fn = preprocess_fn
+            open_clip_base_weights_path = hf_hub_download(
+                repo_id=open_clip_hf_repo_id_only,
+                filename="open_clip_pytorch_model.bin",
+                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+            )
 
-            logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded successfully using open_clip.")
+            full_open_clip_model.load_state_dict(
+                torch.load(open_clip_base_weights_path, map_location='cpu')
+            )
+
+            full_open_clip_model.to(self.device)
+
+            self.model = full_open_clip_model.visual
+            logger.info(f"BiomedCLIPEncoder: Model '{model_name}' loaded manually via open_clip on {self.device}.")
 
             if weights_path and os.path.exists(weights_path):
                 self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
@@ -625,8 +649,7 @@ class BiomedCLIPEncoder(nn.Module):
         except Exception as e:
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
 
-        self.model.eval() 
-        
+        self.model.eval()
 
         with torch.no_grad():
             dummy_image = Image.new('RGB', (224, 224), color='red')
@@ -636,21 +659,14 @@ class BiomedCLIPEncoder(nn.Module):
             logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from open_clip visual model output.")
 
     def encode_image(self, image_path: str) -> torch.Tensor:
-        """
-        Encodes an image path into a normalized feature tensor using BiomedCLIP.
-        """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found at: {image_path}")
 
         image = Image.open(image_path).convert("RGB")
-        # Use the open_clip preprocess function, and add a batch dimension
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            # Pass through the visual model to get features
             features = self.model(processed_image)
-
-            # Normalize features
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
 
