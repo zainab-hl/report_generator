@@ -13,6 +13,7 @@ import json
 import os
 from typing import Optional, Tuple, Dict, Any
 
+
 from transformers import (
     PretrainedConfig,
     AutoConfig,
@@ -29,6 +30,7 @@ from transformers.models.bert.modeling_bert import BertEncoder
 from huggingface_hub import hf_hub_download
 
 import open_clip
+from open_clip import build_model_from_openai_config, build_transform_from_cfg
 from PIL import Image
 
 class ModelOutput:
@@ -609,13 +611,37 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            # Load the model and preprocessing function using open_clip.create_model_from_pretrained.
-            # CRUCIAL: Do NOT pass the 'device' argument here.
-            # Let open_clip handle its internal default device placement, which seems to avoid the meta tensor bug for you.
-            full_open_clip_model, self.preprocess_fn = open_clip.create_model_from_pretrained(model_name)
+            open_clip_hf_repo_id_only = model_name.replace("hf-hub:", "")
 
-            # After the model is loaded (likely on CPU by default from open_clip),
-            # explicitly move the entire model to our desired target device (self.device).
+            # Step 1: Download the open_clip_config.json
+            config_file_path = hf_hub_download(
+                repo_id=open_clip_hf_repo_id_only,
+                filename="open_clip_config.json",
+                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+            )
+            with open(config_file_path, 'r') as f:
+                oc_config = json.load(f)
+
+            open_clip_base_weights_path = hf_hub_download(
+                repo_id=open_clip_hf_repo_id_only,
+                filename="open_clip_pytorch_model.bin",
+                cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+            )
+
+            full_open_clip_model = build_model_from_openai_config(
+                oc_config['model_cfg'],
+                weights_path=None, 
+                device='cpu' # Explicitly create on CPU to ensure data is present
+            )
+
+            # Step 4: Manually load the downloaded state_dict onto the CPU-instantiated model
+            state_dict = torch.load(open_clip_base_weights_path, map_location='cpu')
+            full_open_clip_model.load_state_dict(state_dict)
+
+            # Step 5: Build the preprocessing function from the config
+            self.preprocess_fn = build_transform_from_cfg(oc_config['preprocess_cfg'])
+
+            # Step 6: Move the fully loaded model to the target device (CPU or CUDA)
             full_open_clip_model.to(self.device)
 
             # Ensure the model is in evaluation mode
@@ -623,33 +649,27 @@ class BiomedCLIPEncoder(nn.Module):
 
             # Access the visual encoder part of the loaded open_clip model
             self.model = full_open_clip_model.visual
-            logger.info(f"BiomedCLIPEncoder: Base model '{model_name}' loaded via open_clip and moved to {self.device}.")
+            logger.info(f"BiomedCLIPEncoder: Model '{model_name}' loaded manually via open_clip on {self.device}.")
 
-            # If custom fine-tuned weights are provided, load them.
+            # Step 7: Load custom fine-tuned weights if provided
             if weights_path and os.path.exists(weights_path):
-                # Ensure map_location is set to the model's current device.
                 self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
                 logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
                 logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
         except Exception as e:
-            # Re-raise the error with a more specific message about open_clip loading failure.
             raise ImportError(f"Failed to load BiomedCLIP model using open_clip. Ensure model_name '{model_name}' is correct and accessible. Error: {e}")
 
-        # Determine feature_dim from a dummy forward pass to get the actual output dimension
+        # Determine feature_dim from a dummy forward pass
         with torch.no_grad():
             dummy_image = Image.new('RGB', (224, 224), color='red')
-            # Preprocess the dummy image and move to the current device
             dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
             dummy_output = self.model(dummy_input)
             self.feature_dim = dummy_output.shape[-1]
             logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from open_clip visual model output.")
 
     def encode_image(self, image_path: str) -> torch.Tensor:
-        """
-        Encodes an image path into a normalized feature tensor using BiomedCLIP.
-        """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found at: {image_path}")
 
@@ -662,7 +682,6 @@ class BiomedCLIPEncoder(nn.Module):
         return features
 
 
-# --- Qformer Class (Keep as is, since it was correct and passed checks) ---
 class Qformer(nn.Module):
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -720,8 +739,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
 
     def __init__(
         self,
-        # IMPORTANT: biomedclip_model_name uses standard Hugging Face ID (no 'hf-hub:')
-        biomedclip_model_name: str = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224", # Re-added hf-hub:
+        biomedclip_model_name: str = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
         biogpt_base_model: str = "microsoft/biogpt",
         qformer_config: Optional[Dict[str, Any]] = None,
         max_seq_length: int = 256,
@@ -748,7 +766,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "layer_norm_eps": 1e-12,
             "add_cross_attention": True,
             "cross_attention_freq": 1,
-            "encoder_width": 512, # Based on your observation of 512-dim features
+            "encoder_width": 512,
             "num_query_tokens": 32,
             "gradient_checkpointing": False,
             "vocab_size": 30522,
@@ -931,7 +949,7 @@ class XrayReportGenerator(PreTrainedModel):
                 max_new_tokens=max_new_tokens,
                 num_beams=num_beams,
                 do_sample=do_sample,
-                temperature=kwargs.get('temperature', 0.5),
+                temperature=kwargs.get('temperature', 1.0),
                 top_k=top_k,
                 top_p=top_p,
                 eos_token_id=self.eos_token_id,
