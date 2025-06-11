@@ -30,7 +30,6 @@ from transformers.models.bert.modeling_bert import BertEncoder
 from huggingface_hub import hf_hub_download
 
 import open_clip
-from open_clip import build_model_from_openai_config, build_transform_from_cfg
 from PIL import Image
 
 class ModelOutput:
