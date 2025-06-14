@@ -3,6 +3,6 @@ MODEL_NAMES = {
     "llm": "microsoft/biogpt",
 }
 MODEL_WEIGHTS = {
-    "biomedclip": "/biomedclip_finetuned.pth", 
-    "biogpt": "/biogpt_finetuned.pth"         
+    "biomedclip": "/content/drive/MyDrive/biomedclip_finetunedtry3.pth", 
+    "biogpt": "/content/drive/MyDrive/biogpt_finetuned1.pth"         
 }
