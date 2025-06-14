@@ -919,7 +919,7 @@ class XrayReportGenerator(PreTrainedModel):
                 max_new_tokens=max_new_tokens,
                 num_beams=num_beams,
                 do_sample=do_sample,
-                temperature=kwargs.get('temperature', 1.0),
+                temperature=kwargs.get('temperature', 0.3),
                 top_k=top_k,
                 top_p=top_p,
                 eos_token_id=self.eos_token_id,
