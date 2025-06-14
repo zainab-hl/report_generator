@@ -784,7 +784,6 @@ class XrayReportGenerator(PreTrainedModel):
             model_name=self.biomedclip_model_name,
             weights_path=None 
         )
-
         self.biomedclip_encoder.eval()
         for param in self.biomedclip_encoder.parameters():
             param.requires_grad = False
@@ -851,7 +850,7 @@ class XrayReportGenerator(PreTrainedModel):
 
         query_embeddings = self.q_former(
             encoder_hidden_states=image_features_for_q_former
-        ).last_hidden_state
+        )
         query_embeddings = query_embeddings.to(self.device)
         if self.qformer_output_to_biogpt_input_projection:
             query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
@@ -907,7 +906,7 @@ class XrayReportGenerator(PreTrainedModel):
 
         image_features_for_qformer = image_features.unsqueeze(1)
 
-        query_embeddings = self.qformer(encoder_hidden_states=image_features_for_qformer).last_hidden_state
+        query_embeddings = self.qformer(encoder_hidden_states=image_features_for_qformer)
 
         if self.qformer_output_to_biogpt_input_projection:
             query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
