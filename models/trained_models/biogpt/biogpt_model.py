@@ -122,26 +122,6 @@ class XrayReportGenerator(nn.Module):
             
             input_embeddings = torch.cat(input_embeddings_list, dim=1)
             input_attention_mask = torch.cat(input_attention_mask_list, dim=1)
-
-
-            # generated_output = self.biogpt_decoder.generate(
-            #     inputs_embeds=input_embeddings,
-            #     attention_mask=input_attention_mask,
-            #     max_new_tokens=max_new_tokens,
-            #     num_beams=num_beams, 
-            #     do_sample=do_sample, 
-            #     top_k=top_k,
-            #     top_p=top_p,
-            #     eos_token_id=self.eos_token_id, 
-            #     pad_token_id=self.tokenizer.pad_token_id, 
-            # )
-
-            # generated_report = self.tokenizer.decode(generated_output[0], skip_special_tokens=True)
-
-            # return generated_report
-
-
-
             generated_output = self.biogpt_decoder.generate(
                 inputs_embeds=input_embeddings,
                 attention_mask=input_attention_mask,

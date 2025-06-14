@@ -1,8 +1,3 @@
-# At the absolute top of model.py, even before other imports
-print("---DEBUG: This specific model.py is now running! (Path:", __file__, ")---")
-import sys
-print("---DEBUG: sys.path:", sys.path)
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -608,31 +603,53 @@ class BertEncoder(nn.Module):
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
         )
+
+class _OpenCLIPWrapper(nn.Module):
+    def __init__(self, clip_model):
+        super().__init__()
+        self.clip_model = clip_model # This assigns the open_clip model as a child module
+
+    def forward(self, image_input):
+        # This forward is just for consistency; the actual encoding happens via encode_image
+        return self.clip_model.encode_image(image_input)
+
+    def encode_image(self, image_input):
+        return self.clip_model.encode_image(image_input)
+
 class BiomedCLIPEncoder(nn.Module):
     def __init__(self, model_name: str, weights_path: Optional[str] = None):
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-           
-            self.model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
+            # 1. Create the open_clip model
+            raw_clip_model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
+            raw_clip_model.to(self.device)
 
-            self.model.to(self.device)
+            # 2. Wrap the open_clip model in our _OpenCLIPWrapper
+            self.model_wrapper = _OpenCLIPWrapper(raw_clip_model)
+            
+            # Now, self.model_wrapper is a proper nn.Module child, and its parameters
+            # (which are the parameters of raw_clip_model) will be discoverable by state_dict()
 
             if weights_path and os.path.exists(weights_path):
-                self.model.load_state_dict(
+                # Load state_dict into the wrapper's internal model
+                self.model_wrapper.clip_model.load_state_dict(
                     torch.load(weights_path, map_location=self.device, weights_only=True)
                 )
                 logger.info(f"BiomedCLIPEncoder: Loaded local fine-tuned weights from {weights_path}")
             elif weights_path:
                 logger.warning(f"BiomedCLIPEncoder: Fine-tuned weights path '{weights_path}' provided but file not found. Using the model loaded from Hugging Face Hub.")
 
-            self.model.eval() 
+            self.model_wrapper.eval() 
+            for param in self.model_wrapper.parameters():
+                param.requires_grad = False # Freeze BiomedCLIP by default
 
             with torch.no_grad():
                 dummy_image = Image.new('RGB', (224, 224), color='red')
                 dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
-                dummy_features = self.model.encode_image(dummy_input)
+                # Use the wrapper to encode
+                dummy_features = self.model_wrapper.encode_image(dummy_input) 
                 self.feature_dim = dummy_features.shape[-1]
                 logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
 
@@ -647,7 +664,8 @@ class BiomedCLIPEncoder(nn.Module):
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            features = self.model.encode_image(processed_image)
+            # Use the wrapper to encode
+            features = self.model_wrapper.encode_image(processed_image) 
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
 
@@ -756,30 +774,20 @@ class XrayReportGenerator(PreTrainedModel):
 
     def __init__(self, config: XrayReportGeneratorConfig):
         super().__init__(config)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.biomedclip_model_name = config.biomedclip_model_name
         self.biogpt_base_model = config.biogpt_base_model
         self.max_seq_length = config.max_seq_length
-        self.repo_id = config._name_or_path
 
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=self.biomedclip_model_name,
             weights_path=None 
         )
 
-        if config.biomedclip_finetuned_weights:
-            try:
-                biomedclip_local_path = hf_hub_download(
-                    repo_id=self.repo_id,
-                    filename=config.biomedclip_finetuned_weights,
-                    cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-                )
-                self.biomedclip_encoder.model.load_state_dict(
-                    torch.load(biomedclip_local_path, map_location=self.device)
-                )
-                logger.info(f"XrayReportGenerator: Loaded fine-tuned BiomedCLIP weights from {biomedclip_local_path}")
-            except Exception as e:
-                logger.error(f"XrayReportGenerator: Failed to load fine-tuned BiomedCLIP weights from {config.biomedclip_finetuned_weights}: {e}")
+        self.biomed_clip_encoder.eval()
+        for param in self.biomedclip_encoder.parameters():
+            param.requires_grad = False
 
         qformer_bert_config = BertConfig(**config.qformer_config)
 
@@ -800,19 +808,8 @@ class XrayReportGenerator(PreTrainedModel):
             warnings.warn("Tokenizer pad_token is None, setting to eos_token.")
 
         self.biogpt_decoder = BioGptForCausalLM.from_pretrained(self.biogpt_base_model)
+        self.biogpt_decoder.resize_token_embeddings(len(self.tokenizer))
         self.biogpt_decoder.to(self.device)
-
-        if config.biogpt_finetuned_weights:
-            try:
-                biogpt_local_path = hf_hub_download(
-                    repo_id=self.repo_id,
-                    filename=config.biogpt_finetuned_weights,
-                    cache_dir=os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-                )
-                self.biogpt_decoder.load_state_dict(torch.load(biogpt_local_path, map_location=self.device))
-                logger.info(f"XrayReportGenerator: Loaded fine-tuned BioGPT weights from {biogpt_local_path}")
-            except Exception as e:
-                logger.error(f"XrayReportGenerator: Failed to load fine-tuned BioGPT weights from {config.biogpt_finetuned_weights}: {e}")
 
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
 
@@ -824,6 +821,7 @@ class XrayReportGenerator(PreTrainedModel):
             self.qformer_output_to_biogpt_input_projection = None
 
         self.eos_token_id = self.tokenizer.eos_token_id
+        self.pad_token_id = self.tokenizer.pad_token_id
 
     def forward(self,
         image_path: Optional[str] = None,

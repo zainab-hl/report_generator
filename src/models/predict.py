@@ -42,7 +42,7 @@ def generate_xray_report(
         biogpt_weights_path=None 
     ).to(device)
 
-    FINE_TUNED_MODEL_PATH = "/content/drive/MyDrive/finetuned_report_generator/xray_report_generator_final.pth" # <--- YOUR SAVED MODEL PATH
+    FINE_TUNED_MODEL_PATH = "/content/drive/MyDrive/finetuned_report_generator/xray_report_generator_final.pth" 
 
     print(f"Loading fine-tuned model weights from: {FINE_TUNED_MODEL_PATH}")
     full_model_state_dict = torch.load(FINE_TUNED_MODEL_PATH, map_location=device)
