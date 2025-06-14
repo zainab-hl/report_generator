@@ -774,7 +774,7 @@ class XrayReportGenerator(PreTrainedModel):
 
     def __init__(self, config: XrayReportGeneratorConfig):
         super().__init__(config)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.biomedclip_model_name = config.biomedclip_model_name
         self.biogpt_base_model = config.biogpt_base_model
@@ -785,7 +785,7 @@ class XrayReportGenerator(PreTrainedModel):
             weights_path=None 
         )
 
-        self.biomed_clip_encoder.eval()
+        self.biomedclip_encoder.eval()
         for param in self.biomedclip_encoder.parameters():
             param.requires_grad = False
 
