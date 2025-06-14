@@ -242,7 +242,6 @@ class ReportGenerationDataset(Dataset):
         self.max_seq_length = max_seq_length
         self.data = [] 
 
-        # Add special tokens if they don't exist (important for BioGPT)
         if self.tokenizer.bos_token is None:
             self.tokenizer.add_special_tokens({'bos_token': '<s>'})
             logger.warning("Added '<s>' as BOS token to tokenizer.")
@@ -250,7 +249,6 @@ class ReportGenerationDataset(Dataset):
             self.tokenizer.add_special_tokens({'eos_token': '</s>'})
             logger.warning("Added '</s>' as EOS token to tokenizer.")
         if self.tokenizer.pad_token is None:
-            # It's common to use EOS token as PAD token for GPT-like models if PAD isn't defined
             self.tokenizer.add_special_tokens({'pad_token': self.tokenizer.eos_token})
             logger.warning(f"Tokenizer pad_token not set, using eos_token ('{self.tokenizer.eos_token}') as pad_token.")
         
@@ -323,14 +321,10 @@ def train_model():
     train_dataloader = DataLoader(train_dataset, batch_size=config.train_batch_size, shuffle=True)
     logger.info(f"DataLoader initialized with {len(train_dataloader)} batches.")
 
-    # Initialize Q-Former Config (using BertConfig from your Q_former module)
+    # Initialize Q-Former Config (using BertConfig from Q_former module)
     qformer_bert_config = BertConfig(
-        # Parameters explicitly overridden from your BertConfig's defaults:
-        num_hidden_layers=6,  # Your custom BertConfig defaults to 12, you're setting it to 6
-        encoder_width=config.biomedclip_encoder_width, # Your custom BertConfig defaults to 768, you're setting it to 512 (from TrainingConfig)
-
-        # Parameters that match your custom BertConfig's defaults, you can include them for clarity
-        # or omit them if you're happy with the default:
+        num_hidden_layers=6,  
+        encoder_width=config.biomedclip_encoder_width, 
         vocab_size=30522,
         hidden_size=768,
         num_attention_heads=12,
@@ -345,10 +339,10 @@ def train_model():
         pad_token_id=0,
         position_embedding_type="absolute",
         use_cache=True,
-        classifier_dropout=None, # Explicitly setting to None is fine
+        classifier_dropout=None, 
         num_query_tokens=32,
         cross_attention_freq=1,
-        gradient_checkpointing=False, # Assuming you want this as False by default
+        gradient_checkpointing=False, 
     )
     # The XrayReportGeneratorConfig expects a dictionary for qformer_config
     qformer_config_dict = qformer_bert_config.to_dict()
@@ -372,9 +366,6 @@ def train_model():
     logger.info("XrayReportGenerator model instantiated.")
 
     # --- Explicitly Load Fine-tuned Weights for Training ---
-    # This step is critical because XrayReportGenerator's __init__ was modified
-    # to NOT load external .pth files when initialized (for HF Hub deployment).
-    # You need to load them here to start your training from the fine-tuned state.
 
     # Load BiomedCLIP fine-tuned weights
     if MODEL_WEIGHTS["biomedclip"] and os.path.exists(MODEL_WEIGHTS["biomedclip"]):
