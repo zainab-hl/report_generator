@@ -824,109 +824,111 @@ class XrayReportGenerator(PreTrainedModel):
         self.pad_token_id = self.tokenizer.pad_token_id
 
     def forward(self,
-        image_path: Optional[str] = None,
-        prompt_text: Optional[str] = None,
-        max_new_tokens: int = 50,
-        num_beams: int = 1,
-        do_sample: bool = False,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
+        # image_path: Optional[str] = None,
+        # prompt_text: Optional[str] = None,
+        # max_new_tokens: int = 250,
+        # num_beams: int = 1,
+        # do_sample: bool = True,
+        # top_k: Optional[int] = None,
+        # top_p: Optional[float] = None,
         image_features: Optional[torch.Tensor] = None,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs
         ):
-        is_training = image_features is not None and input_ids is not None and attention_mask is not None
 
-        if image_path is not None and not is_training:
+        if image_features is None or input_ids is None or attention_mask is None:
+            raise ValueError("For training, 'image_features', 'input_ids', and 'attention_mask' must be provided to the forward method.")
+            
+        image_features = image_features.to(self.device)
+        input_ids = input_ids.to(self.device)
+        attention_mask = attention_mask.to(self.device)
+
+        if image_features.ndim == 1:
+            image_features = image_features.unsqueeze(0)
+        
+        image_features_for_q_former = image_features.unsqueeze(1)
+
+        query_embeddings = self.q_former(
+            encoder_hidden_states=image_features_for_q_former
+        ).last_hidden_state
+        query_embeddings = query_embeddings.to(self.device)
+        if self.qformer_output_to_biogpt_input_projection:
+            query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
+
+        report_embeddings = self.biogpt_decoder.get_input_embeddings()(input_ids)
+        decoder_input_embeddings = torch.cat([query_embeddings, report_embeddings], dim=1)
+
+        query_attention_mask = torch.ones(
+            query_embeddings.shape[0],
+            query_embeddings.shape[1],
+            dtype=torch.long,
+            device=self.device
+        )
+        decoder_attention_mask = torch.cat([query_attention_mask, attention_mask], dim=1)
+
+        labels = input_ids.clone()
+        ignored_labels_for_query = torch.full(
+            (query_embeddings.shape[0], query_embeddings.shape[1]),
+            -100,
+            dtype = torch.long,
+            device = self.device
+        )
+        decoder_labels = torch.cat([ignored_labels_for_query, labels], dim=1)
+
+        biogpt_decoder_kwargs = {
+            "inputs_embeds": decoder_input_embeddings,
+            "attention_mask": decoder_attention_mask,
+            "labels": decoder_labels,
+            "return_dict": True
+        }
+
+        outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)
+        return outputs.loss
+    
+    def generate(
+        self,
+        image_path: Optional[str] = None,
+        **kwargs
+    ) -> torch.Tensor:
+        prompt_text = kwargs.get('prompt_text', None)
+        max_new_tokens = kwargs.get('max_new_tokens', 250)
+        num_beams = kwargs.get('num_beams', 1)
+        do_sample = kwargs.get('do_sample', True)
+        top_k = kwargs.get('top_k', None)
+        top_p = kwargs.get('top_p', None)
+        if not image_path or image_path is None:
+            raise ValueError("For inference, either 'image_path' must be provided.")
+        if image_path is not None and 'image_features' not in kwargs:
             image_features = self.biomedclip_encoder.encode_image(image_path)
-        elif image_features is None and not is_training and not prompt_text:
-            raise ValueError("For inference, either image_path, image_features, or prompt_text must be provided.")
+        elif image_features is not None and image_features.ndim == 1:
+            image_features = image_features.unsqueeze(0)
+            image_features.to(self.device)
 
-        query_embeddings = None
+        image_features_for_qformer = image_features.unsqueeze(1)
 
-        if image_features is not None:
-            if image_features.ndim == 1:
-                image_features = image_features.unsqueeze(0)
+        query_embeddings = self.qformer(encoder_hidden_states=image_features_for_qformer).last_hidden_state
 
-            image_features = image_features.to(self.device)
+        if self.qformer_output_to_biogpt_input_projection:
+            query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
 
-            image_features_for_qformer = image_features.unsqueeze(1)
+        query_embeddings = query_embeddings.to(self.device)
 
-            query_embeddings = self.qformer(encoder_hidden_states=image_features_for_qformer)
-
-            if self.qformer_output_to_biogpt_input_projection:
-                query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
-
-            query_embeddings = query_embeddings.to(self.device)
-
-        if is_training:
-            if query_embeddings is None:
-                raise ValueError("image_features (and thus query_embeddings) must be provided for training.")
-
-            report_embeddings = self.biogpt_decoder.get_input_embeddings()(input_ids)
-            decoder_input_embeddings = torch.cat([query_embeddings, report_embeddings], dim=1)
-
-            query_attention_mask = torch.ones(
-                query_embeddings.shape[0],
-                query_embeddings.shape[1],
-                dtype=torch.long,
-                device=self.device
-            )
-            decoder_attention_mask = torch.cat([query_attention_mask, attention_mask], dim=1)
-
-            labels = input_ids.clone()
-            ignored_labels_for_query = torch.full(
-                (query_embeddings.shape[0], query_embeddings.shape[1]),
-                -100,
-                dtype = torch.long,
-                device = self.device
-            )
-            decoder_labels = torch.cat([ignored_labels_for_query, labels], dim=1)
-
-            biogpt_decoder_kwargs = {
-                "inputs_embeds": decoder_input_embeddings,
-                "attention_mask": decoder_attention_mask,
-                "labels": decoder_labels,
-                "return_dict": True
-            }
-
-            outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)
-            return outputs.loss
-
-        else:
-            if query_embeddings is None:
-                raise ValueError("For inference, image features (from image_path or image_features) must be provided.")
-
-            input_embeddings_list = [query_embeddings]
-            input_attention_mask_list = [torch.ones(query_embeddings.shape[0], query_embeddings.shape[1], dtype=torch.long, device=self.device)]
-
-            if prompt_text:
-                prompt_token_ids = self.tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False).input_ids
-                prompt_token_ids = prompt_token_ids.to(self.device)
-
-                text_embeddings = self.biogpt_decoder.get_input_embeddings()(prompt_token_ids)
-
-                input_embeddings_list.append(text_embeddings)
-                input_attention_mask_list.append(torch.ones(text_embeddings.shape[0], text_embeddings.shape[1], dtype=torch.long, device=self.device))
-
-            input_embeddings = torch.cat(input_embeddings_list, dim=1)
-            input_attention_mask = torch.cat(input_attention_mask_list, dim=1)
-
-            generated_output = self.biogpt_decoder.generate(
-                inputs_embeds=input_embeddings,
-                attention_mask=input_attention_mask,
-                max_new_tokens=max_new_tokens,
-                num_beams=num_beams,
-                do_sample=do_sample,
-                temperature=kwargs.get('temperature', 0.3),
-                top_k=top_k,
-                top_p=top_p,
-                eos_token_id=self.eos_token_id,
-                pad_token_id=self.tokenizer.pad_token_id,
-                **kwargs
-            )
-
-            generated_report = self.tokenizer.decode(generated_output[0], skip_special_tokens=True)
-
-            return generated_report
+        batch_size = query_embeddings.shape[0]
+        input_ids = torch.full(
+            (batch_size, 1), 
+            self.tokenizer.bos_token_id,
+            dtype=torch.long,
+            device=self.device 
+        )
+        
+        generated_ids = self.biogpt_decoder.generate(
+            input_ids=input_ids, 
+            encoder_hidden_states=query_embeddings, 
+            pad_token_id=self.pad_token_id,
+            eos_token_id=self.eos_token_id,
+            bos_token_id=self.tokenizer.bos_token_id,
+            **kwargs,
+        )
+        
+        return generated_ids
