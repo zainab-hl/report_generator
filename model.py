@@ -884,6 +884,7 @@ class XrayReportGenerator(PreTrainedModel):
 
         outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)
         return outputs.loss
+
     
     def generate(
         self,
@@ -910,10 +911,22 @@ class XrayReportGenerator(PreTrainedModel):
 
         if self.qformer_output_to_biogpt_input_projection:
             query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
-
         query_embeddings = query_embeddings.to(self.device)
-
+        
         batch_size = query_embeddings.shape[0]
+
+        bos_token_embedding = self.biogpt_decoder.get_input_embeddings()(
+            torch.full((batch_size, 1), self.tokenizer.bos_token_id, dtype=torch.long, device=self.device)
+        )
+
+        initial_input_embeddings = torch.cat([query_embeddings, bos_token_embedding], dim=1)
+
+        attention_mask_for_initial_embeddings = torch.ones(
+            initial_input_embeddings.shape[0],
+            initial_input_embeddings.shape[1],
+            dtype=torch.long,
+            device=self.device
+        )
         input_ids = torch.full(
             (batch_size, 1), 
             self.tokenizer.bos_token_id,
