@@ -936,7 +936,7 @@ class XrayReportGenerator(PreTrainedModel):
         
         generated_ids = self.biogpt_decoder.generate(
             input_ids=input_ids, 
-            encoder_hidden_states=query_embeddings, 
+            # encoder_hidden_states=query_embeddings, 
             # pad_token_id=0,
             # eos_token_id=self.eos_token_id,
             # bos_token_id=self.tokenizer.bos_token_id,
