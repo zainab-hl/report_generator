@@ -200,7 +200,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from transformers import BioGptTokenizer, AutoConfig # Import AutoConfig for better config handling
+from transformers import BioGptTokenizer, AutoConfig 
 from transformers.optimization import get_scheduler
 from torch.optim import AdamW
 import os
@@ -218,7 +218,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
     logger.info(f"Added {project_root} to sys.path")
 
-from model.py import XrayReportGenerator, XrayReportGeneratorConfig, BertConfig
+from model import XrayReportGenerator, XrayReportGeneratorConfig, BertConfig
 from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 
 # --- Configuration for Training ---

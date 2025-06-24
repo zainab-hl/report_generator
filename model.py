@@ -622,18 +622,12 @@ class BiomedCLIPEncoder(nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         try:
-            # 1. Create the open_clip model
             raw_clip_model, _, self.preprocess_fn = open_clip.create_model_and_transforms(model_name)
             raw_clip_model.to(self.device)
 
-            # 2. Wrap the open_clip model in our _OpenCLIPWrapper
             self.model_wrapper = _OpenCLIPWrapper(raw_clip_model)
-            
-            # Now, self.model_wrapper is a proper nn.Module child, and its parameters
-            # (which are the parameters of raw_clip_model) will be discoverable by state_dict()
 
             if weights_path and os.path.exists(weights_path):
-                # Load state_dict into the wrapper's internal model
                 self.model_wrapper.clip_model.load_state_dict(
                     torch.load(weights_path, map_location=self.device, weights_only=True)
                 )
@@ -648,7 +642,6 @@ class BiomedCLIPEncoder(nn.Module):
             with torch.no_grad():
                 dummy_image = Image.new('RGB', (224, 224), color='red')
                 dummy_input = self.preprocess_fn(dummy_image).unsqueeze(0).to(self.device)
-                # Use the wrapper to encode
                 dummy_features = self.model_wrapper.encode_image(dummy_input) 
                 self.feature_dim = dummy_features.shape[-1]
                 logger.info(f"BiomedCLIPEncoder: Determined feature_dim = {self.feature_dim} from model.encode_image output.")
@@ -664,7 +657,6 @@ class BiomedCLIPEncoder(nn.Module):
         processed_image = self.preprocess_fn(image).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            # Use the wrapper to encode
             features = self.model_wrapper.encode_image(processed_image) 
             features = features / features.norm(p=2, dim=-1, keepdim=True)
         return features
