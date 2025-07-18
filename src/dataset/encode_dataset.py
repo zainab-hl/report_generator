@@ -42,14 +42,13 @@ except Exception as e:
 # --- Process the Dataset ---
 print(f"Starting dataset processing from: {DATASET_PATH}")
 
-# 1. Get all entries and sort them
 all_entries = []
 for entry_name in os.listdir(DATASET_PATH):
     entry_path = os.path.join(DATASET_PATH, entry_name)
     if os.path.isdir(entry_path):
         all_entries.append(entry_path)
 
-all_entries.sort() # Sort the list of entry paths
+all_entries.sort() 
 
 total_entries = len(all_entries)
 if total_entries == 0:
@@ -58,8 +57,7 @@ if total_entries == 0:
 
 print(f"Found {total_entries} entries. Processing in 20% chunks.")
 
-# Calculate chunk size
-chunk_size = max(1, total_entries // 5) # Ensure chunk size is at least 1
+chunk_size = max(1, total_entries // 5) 
 
 processed_count = 0
 
@@ -74,7 +72,6 @@ for i in range(0, total_entries, chunk_size):
         image_file = None
         caption_file = None
 
-        # Find image and caption files in the current directory
         for item in os.listdir(entry_path):
             if item.endswith('.jpg') or item.endswith('.jpeg') or item.endswith('.png'):
                 image_file = os.path.join(entry_path, item)

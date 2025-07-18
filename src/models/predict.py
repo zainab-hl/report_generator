@@ -51,6 +51,8 @@ def generate_xray_report(
     
     model.eval() 
 
+    
+
     print("Model initialized and fine-tuned weights loaded. Generating report...")
 
     with torch.no_grad(): 
